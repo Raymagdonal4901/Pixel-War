@@ -1,7 +1,7 @@
 {
-  "url": "http://localhost:5173",
+  "url": "https://pixelwars-delta.vercel.app/",
   "name": "Pixel War",
-  "iconUrl": "https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest-icon.png",
+  "iconUrl": "https://pixelwars-delta.vercel.app/logo.png",
   "termsOfUseUrl": "https://ton.org/terms",
   "privacyPolicyUrl": "https://ton.org/privacy"
 }
