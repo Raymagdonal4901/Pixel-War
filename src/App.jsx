@@ -1,0 +1,2339 @@
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { CHARACTERS, RARITY_COLORS } from './data/characters';
+import { BOSSES, calcROI, GACHA_COST_TON, DROP_RATES, REPAIR_FEE_PERCENT, calcRepairCost, BASE_RATE_PER_ATK } from './data/tokenomics';
+import { useGacha } from './hooks/useGacha';
+import { useHeroRoster } from './hooks/useHeroRoster';
+import { useSquad } from './hooks/useSquad';
+import { useBossRaid } from './hooks/useBossRaid';
+import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
+import RepairPaymentButton from './components/RepairPaymentButton';
+import PvpArena from './components/PvpArena';
+import ArcadeBetting from './components/ArcadeBetting';
+import ReferralHub from './components/ReferralHub';
+import { useT } from './i18n/LanguageContext';
+import { useReferral } from './hooks/useReferral';
+
+// Icons placeholders using emojis/text for retro vibe
+const IconBattle = () => (
+  <div className="relative w-8 h-8 flex items-center justify-center">
+    <img 
+      src="/battle_icon.png" 
+      alt="Battle" 
+      className="w-full h-full object-contain image-pixelated drop-shadow-[0_0_5px_rgba(255,255,255,0.2)]" 
+    />
+  </div>
+);
+const IconGacha = () => <img src="/gacha_icon.png" alt="Gacha" className="w-[30px] h-[30px] object-contain image-pixelated translate-y-[-2px]" />;
+const IconHeroes = () => (
+  <div className="relative w-8 h-8 flex items-center justify-center">
+    {/* Hero Sprite - Shield removed as requested */}
+    <img 
+      src="/Robot/epic_16.png" 
+      className="w-[28px] h-[28px] object-contain image-pixelated drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]" 
+      alt="Hero Icon" 
+    />
+  </div>
+);
+const IconArena = () => <img src="/PVP.png" alt="PVP" className="w-8 h-8 object-contain image-pixelated translate-y-[-2px]" />;
+const IconArcade = () => <img src="/PVP_arcade.png" alt="Arcade" className="w-8 h-8 object-contain image-pixelated translate-y-[-2px]" />;
+const IconEarn = () => <img src="/Withdraw.png" alt="Earn" className="w-[32px] h-[32px] object-contain image-pixelated drop-shadow-[0_0_5px_rgba(30,144,255,0.3)]" />;
+const IconReferral = () => <span className="text-2xl drop-shadow-[0_0_5px_rgba(255,255,255,0.4)] relative -top-1">🤝</span>;
+const IconTon = ({ className }) => <img src="/ton_coin.png" alt="TON" className={`object-contain aspect-square ${className || 'w-4 h-4'}`} />;
+const IconPixel = () => <span>🟡</span>;
+const IconCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M2 8L6 12L14 4" stroke="currentColor" strokeWidth="3" strokeLinecap="square" strokeLinejoin="miter"/>
+  </svg>
+);
+const IconRobotSil = ({ className = "w-4 h-4", color = "currentColor" }) => (
+  <svg className={className} viewBox="0 0 16 16" fill={color} xmlns="http://www.w3.org/2000/svg" style={{ imageRendering: 'pixelated' }}>
+    <path d="M4 2H12V4H14V10H12V12H4V10H2V4H4V2Z" /> {/* Head */}
+    <path d="M5 5H7V7H5V5Z" fill="black" fillOpacity="0.3" /> {/* Left Eye */}
+    <path d="M9 5H11V7H9V5Z" fill="black" fillOpacity="0.3" /> {/* Right Eye */}
+    <path d="M2 5H1V8H2V5Z" /> {/* Left Ear */}
+    <path d="M14 5H15V8H14V5Z" /> {/* Right Ear */}
+    <path d="M6 12H10V14H6V12Z" /> {/* Neck */}
+  </svg>
+);
+
+const PREVIEW_DATA = [
+  CHARACTERS.find(c => c.rarity === 'Common'),
+  CHARACTERS.find(c => c.rarity === 'Rare'),
+  CHARACTERS.find(c => c.rarity === 'SR'),
+  CHARACTERS.find(c => c.rarity === 'Epic'),
+  CHARACTERS.find(c => c.rarity === 'Legendary')
+].filter(Boolean);
+
+
+
+
+const Sprite = ({ char, className = "" }) => {
+  if (!char) return <span>🤖</span>;
+  if (char.imagePath) {
+    // Standard Vite public path
+    const src = char.imagePath.startsWith('/') ? char.imagePath : `/${char.imagePath}`;
+    return (
+      <img 
+        src={src} 
+        alt={char.name} 
+        className={`${className} w-full h-full object-contain image-pixelated`}
+        style={{ minWidth: '20px', minHeight: '20px' }}
+      />
+    );
+  }
+  const { sprite } = char;
+  if (!sprite) return <span>🤖</span>;
+  const cols = 8;
+  const rows = 8; 
+  return (
+    <div 
+      className={className}
+      style={{
+        width: '100%',
+        height: '100%',
+        backgroundImage: `url('/${sprite.sheet}')`,
+        backgroundSize: `${cols * 100}% ${rows * 100}%`,
+        backgroundPosition: `${(sprite.col / (cols - 1)) * 100}% ${(sprite.row / (rows - 1)) * 100}%`,
+        backgroundRepeat: 'no-repeat',
+        imageRendering: 'pixelated'
+      }}
+    />
+  );
+};
+
+const RARITY_ORDER = { Legendary: 0, Epic: 1, SR: 2, Rare: 3, Common: 4 };
+
+function App() {
+  const wallet = useTonWallet();
+  const { t, lang, toggleLang } = useT();
+  const [activeTab, setActiveTab] = useState('raid');
+  const [raidView, setRaidView] = useState('list');
+  const [pullResult, setPullResult] = useState(null);
+  const [isPulling, setIsPulling] = useState(false);
+  const [showRates, setShowRates] = useState(false);
+  const [repairTarget, setRepairTarget] = useState(null);
+  const [heroFilter, setHeroFilter] = useState('ALL');
+  const [selectedHero, setSelectedHero] = useState(null);
+  const [showCapacityWarning, setShowCapacityWarning] = useState(false);
+  const [gachaAnim, setGachaAnim] = useState(null); // 'falling', 'shaking', 'burst', 'revealed'
+  const { pullMultiple, legendaryPity, totalPulls } = useGacha();
+  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, clearRoster, rarityCounts, damageHeroes, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
+  const [showRepairModal, setShowRepairModal] = useState(false);
+  const [activeRepairType, setActiveRepairType] = useState('squad'); // 'squad' or 'all'
+  const [selectedBossIndex, setSelectedBossIndex] = useState(0);
+  const currentBoss = BOSSES[selectedBossIndex];
+  const { deployedHeroes, availableHeroes, squadCount, maxSquadSize, isFull, totalAtk, deployHero, undeployHero, deployAll, undeployAll } = useSquad(userHeroes, currentBoss.maxSlots);
+  const { isRaidActive, progress, dailyEarning, bossMaxHp, elapsedFormatted, remainingFormatted, startRaid, claimReward, cancelRaid } = useBossRaid(totalAtk, currentBoss.multiplier);
+  const [raidFilter, setRaidFilter] = useState('ALL');
+  const [showSquadFullWarning, setShowSquadFullWarning] = useState(false);
+  const [showClaimResult, setShowClaimResult] = useState(null);
+
+  // Long-press Popup State
+  const [longPressHero, setLongPressHero] = useState(null);
+  const longPressTimerRef = useRef(null);
+
+  const handlePointerDown = (hero, e) => {
+    e.preventDefault();
+    longPressTimerRef.current = setTimeout(() => {
+      setLongPressHero(hero);
+    }, 400);
+  };
+
+  // Merge & Upgrade State
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSelections, setMergeSelections] = useState([]);
+  const [mergeSourceHero, setMergeSourceHero] = useState(null);
+  const [upgradeResult, setUpgradeResult] = useState(null);
+  const [mergeResult, setMergeResult] = useState(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const [fusionSourceHeroes, setFusionSourceHeroes] = useState([]);
+  const [fusionParticles] = useState(() => Array.from({ length: 20 }).map(() => ({
+    left: `${Math.random() * 100}%`,
+    top: `${Math.random() * 100}%`,
+    tx: `${(Math.random() - 0.5) * 400}px`,
+    ty: `${(Math.random() - 0.5) * 400}px`,
+    delay: `${Math.random() * 2}s`
+  })));
+
+  const handlePointerUp = () => {
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+    setLongPressHero(null);
+  };
+  
+  // Welcome Gift States
+  const [welcomeHero, setWelcomeHero] = useState(null);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [showPlusOneBadge, setShowPlusOneBadge] = useState(false);
+
+  // Withdrawal States
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawAddress, setWithdrawAddress] = useState('');
+  
+  // Balance State
+  const [balance, setBalance] = useState(() => {
+    const saved = localStorage.getItem('pixel_war_balance');
+    return saved ? parseFloat(saved) : 12.5;
+  });
+
+  // Custom Confirm Modal State
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+
+  // Profile State
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem('pixel_war_player_name') || 'Player1');
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  
+  const GRADE_COLORS = {
+    'S': '#f1c40f',
+    'A': '#a29bfe',
+    'B': '#2ecc71',
+    'C': '#95a5a6'
+  };
+
+  const ELEMENT_COLORS = {
+    'PLASMA': '#ff4757', // Fire Red
+    'CRYO': '#54a0ff',   // Ice Blue
+    'BIO': '#2ed573'     // Leaf Green
+  };
+
+  const ELEMENT_ICONS = {
+    'PLASMA': '🔥',
+    'CRYO': '💧',
+    'BIO': '🌿'
+  };
+  
+  // PVP & Arcade Shared Quota State (5 per 2 hours)
+  const [pvpStats, setPvpStats] = useState(() => {
+    const currentPeriodId = Math.floor(Date.now() / (2 * 3600 * 1000));
+    const saved = localStorage.getItem('pixel_war_pvp_stats');
+    const defaultStats = { count: 0, lastResetDayId: currentPeriodId };
+    try {
+      const parsed = saved ? JSON.parse(saved) : defaultStats;
+      // Perform reset if period changed during initialization
+      if (parsed.lastResetDayId !== currentPeriodId) {
+        return { count: 0, lastResetDayId: currentPeriodId };
+      }
+      return parsed;
+    } catch {
+      return defaultStats;
+    }
+  });
+
+  // Persist pvpStats when changed
+  useEffect(() => {
+    localStorage.setItem('pixel_war_pvp_stats', JSON.stringify(pvpStats));
+  }, [pvpStats]);
+
+  useEffect(() => {
+    localStorage.setItem('pixel_war_player_name', playerName);
+  }, [playerName]);
+
+  // One-time Welcome Gift Trigger
+  useEffect(() => {
+    const hasClaimed = localStorage.getItem('pixel_war_welcome_claimed');
+    // If wallet connected and never claimed, trigger the free gift
+    if (wallet && hasClaimed !== 'true' && !welcomeHero) {
+      // Use settimeout to avoid synchronous setState during effect render
+      setTimeout(() => {
+        const results = pullMultiple(1);
+        if (results && results.length > 0) {
+          setWelcomeHero(results[0]);
+          setShowWelcomeModal(true);
+        }
+      }, 0);
+    }
+  }, [wallet, welcomeHero, pullMultiple]);
+
+  const handleClaimWelcomeGift = () => {
+    if (welcomeHero) {
+      addHeroes([welcomeHero]);
+      localStorage.setItem('pixel_war_welcome_claimed', 'true');
+      setShowPlusOneBadge(true);
+      setShowWelcomeModal(false);
+      // Revert badge after 3 seconds
+      setTimeout(() => setShowPlusOneBadge(false), 3000);
+    }
+  };
+
+
+
+  const handleSaveProfile = (newName) => {
+    if (newName.trim().length >= 3 && newName.trim().length <= 15) {
+      setPlayerName(newName.trim());
+      setIsEditingProfile(false);
+    }
+  };
+
+  useEffect(() => {
+    localStorage.setItem('pixel_war_balance', balance.toString());
+  }, [balance]);
+
+  const handleWithdrawAmountChange = (e) => {
+    const val = e.target.value;
+    if (val === '' || /^\d*\.?\d*$/.test(val)) {
+      setWithdrawAmount(val);
+    }
+  };
+
+  // Derived tokenomics values
+  const totalInvested = totalPulls * GACHA_COST_TON;
+  const roiDays = calcROI(totalInvested, dailyEarning);
+
+  // Repair bill for the currently deployed squad
+  const repairBill = useMemo(() => {
+    let totalCost = 0;
+    const damagedSquad = deployedHeroes.filter(h => h.needsRepair);
+    const breakdownMap = {};
+    
+    damagedSquad.forEach(hero => {
+      if (!breakdownMap[hero.rarity]) breakdownMap[hero.rarity] = { rarity: hero.rarity, count: 0, totalGroupCost: 0, color: hero.color };
+      const cost = calcRepairCost(hero.atk);
+      breakdownMap[hero.rarity].count += 1;
+      breakdownMap[hero.rarity].totalGroupCost += cost;
+      totalCost += cost;
+    });
+
+    return { 
+      breakdown: Object.values(breakdownMap).sort((a, b) => (RARITY_ORDER[a.rarity] ?? 5) - (RARITY_ORDER[b.rarity] ?? 5)), 
+      totalCost, 
+      damagedCount: damagedSquad.length,
+      damagedIds: damagedSquad.map(h => h.instanceId)
+    };
+  }, [deployedHeroes]);
+
+  // Repair bill for the entire roster
+  const repairAllBill = useMemo(() => {
+    let totalCost = 0;
+    const damagedAll = userHeroes.filter(h => h.needsRepair);
+    const breakdownMap = {};
+    
+    damagedAll.forEach(hero => {
+      if (!breakdownMap[hero.rarity]) breakdownMap[hero.rarity] = { rarity: hero.rarity, count: 0, totalGroupCost: 0, color: hero.color };
+      const cost = calcRepairCost(hero.atk);
+      breakdownMap[hero.rarity].count += 1;
+      breakdownMap[hero.rarity].totalGroupCost += cost;
+      totalCost += cost;
+    });
+
+    return { 
+      breakdown: Object.values(breakdownMap).sort((a, b) => (RARITY_ORDER[a.rarity] ?? 5) - (RARITY_ORDER[b.rarity] ?? 5)), 
+      totalCost, 
+      damagedCount: damagedAll.length,
+      damagedIds: damagedAll.map(h => h.instanceId)
+    };
+  }, [userHeroes]);
+
+  const currentRepairBill = activeRepairType === 'all' ? repairAllBill : repairBill;
+
+  // Filtered heroes for display
+  const filteredHeroes = useMemo(() => {
+    if (heroFilter === 'ALL') return userHeroes;
+    return userHeroes.filter(h => h.rarity === heroFilter);
+  }, [userHeroes, heroFilter]);
+
+  // Sort: Legendary first, then by obtainedAt desc
+  const sortedHeroes = useMemo(() => {
+    return [...filteredHeroes].sort((a, b) => {
+      const rd = (RARITY_ORDER[a.rarity] ?? 5) - (RARITY_ORDER[b.rarity] ?? 5);
+      if (rd !== 0) return rd;
+      return (b.obtainedAt || 0) - (a.obtainedAt || 0);
+    });
+  }, [filteredHeroes]);
+
+  const handlePull = (count) => {
+    if (isPulling) return;
+    
+    // Check roster capacity
+    if (!canAdd(count)) {
+      setShowCapacityWarning(true);
+      return;
+    }
+
+    setIsPulling(true);
+    setPullResult(null);
+    setGachaAnim('falling');
+
+    // step 1: Falling (0.8s)
+    setTimeout(() => {
+      setGachaAnim('shaking');
+      
+      // step 2: Shaking (1.2s)
+      setTimeout(() => {
+        setGachaAnim('burst');
+        
+        // step 3: Burst (0.6s)
+        setTimeout(() => {
+          const chars = pullMultiple(count);
+          setPullResult(chars);
+          setGachaAnim(null);
+          setIsPulling(false);
+        }, 600);
+      }, 1200);
+    }, 800);
+  };
+
+  const handleConfirmPull = () => {
+    if (pullResult) {
+      addHeroes(pullResult);
+    }
+    setPullResult(null);
+  };
+
+  // --- REFERRAL SYSTEM ---
+  const { referralData, claimRewards } = useReferral(balance, setBalance);
+
+  return (
+    <div className="flex flex-col min-h-screen max-w-md mx-auto relative overflow-hidden bg-[var(--color-game-bg)] font-pixel text-[10px] sm:text-xs">
+      
+      <header className="theme-header-bg sticky top-0 z-50 p-1.5 px-4 shadow-lg relative flex items-center justify-between border-b border-[#2a2d36] overflow-hidden min-h-[85px]">
+        
+        {/* LEFT SIDE: Logo */}
+        <div className="flex-shrink-0 relative z-10 py-1">
+          <div className="h-12 w-32 pointer-events-none flex items-center justify-center">
+            <img 
+              src="/logo.png" 
+              alt="Pixel War Logo" 
+              className="h-full w-full object-contain filter drop-shadow-[0_0_12px_rgba(255,215,0,0.5)] animate-pulse-slow scale-[1.1]" 
+            />
+          </div>
+        </div>
+
+        {/* RIGHT SIDE: 2-Row Stacked HUD */}
+        <div className="flex flex-col items-end gap-1.5 relative z-10 mr-5">
+          
+          {/* ROW 1: Primary Actions (Connect & Balance) */}
+          <div className="flex items-center gap-1.5">
+            <div className="origin-right scale-[0.4] sm:scale-55 h-6 flex items-center">
+              <TonConnectButton />
+            </div>
+            
+            {/* 1. Total Balance (Wallet Background) */}
+            <div className="flex items-center gap-1 bg-black/40 border border-[#3b4252] px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+              <span className="flex items-center justify-center">
+                <IconTon className="w-2.5 h-2.5" />
+              </span>
+              <span className="text-white font-mono tracking-tight font-bold">{balance.toFixed(2)} <span className="text-[5px] text-[#f1c40f]">TON</span></span>
+            </div>
+          </div>
+
+          {/* ROW 2: Identity & Language */}
+          <div className="flex items-center gap-2">
+            {/* 2. Player Identity (Name Only) */}
+            <div 
+              className="flex items-center cursor-pointer group"
+              onClick={() => setIsEditingProfile(true)}
+            >
+              <span className="text-white text-[9px] font-bold tracking-tight drop-shadow-md hover:text-yellow-400 transition-colors max-w-[60px] truncate">
+                {playerName}
+              </span>
+            </div>
+
+            {/* 3. Lang Toggle (Behind Name) */}
+            <button 
+              onClick={toggleLang}
+              className="px-1.5 py-0.5 bg-black/30 border border-gray-600 hover:border-yellow-500 text-[6px] text-gray-300 hover:text-yellow-400 transition-all pixel-border-sm font-bold tracking-tight shadow-md"
+            >
+              {lang === 'th' ? 'EN' : 'TH'}
+            </button>
+          </div>
+
+        </div>
+      </header>
+
+      {/* Main Scrollable Content */}
+      <main className="flex-1 flex flex-col z-10 p-4 pb-24 overflow-y-auto">
+        
+        {activeTab === 'raid' && (
+          <div className="flex flex-col flex-1 relative min-h-full">
+            {/* Background Watermark */}
+            <div 
+              className="absolute inset-x-0 top-0 bottom-[-50px] z-0 opacity-[0.05] pointer-events-none bg-center bg-repeat image-pixelated translate-y-[-20px] grayscale-[0.5]"
+              style={{ backgroundImage: "url('/pvp_bg.png')", backgroundSize: '320px' }}
+            ></div>
+            
+            <div className="relative z-10 w-full flex flex-col flex-1">
+            {raidView === 'list' && !isRaidActive ? (
+              <section className="flex flex-col items-center mb-4 w-full">
+                <div className="text-center mb-4 w-full">
+                  <h2 className="text-yellow-400 text-lg font-bold drop-shadow-md animate-pulse">{t('raid.bossTitle')}</h2>
+                  <p className="text-gray-400 text-[8px] mt-1">{t('raid.selectBoss')}</p>
+                </div>
+                
+                <div className="flex flex-col gap-3 w-full px-2">
+                  {BOSSES.map((boss, idx) => {
+                    const isUnlocked = idx === 0 || heroCount >= BOSSES[idx - 1].maxSlots;
+
+                    return (
+                      <div 
+                        key={boss.id} 
+                        className={`relative w-full pixel-border p-3 transition-all ${
+                          isUnlocked 
+                            ? 'opacity-100 cursor-pointer hover:scale-[1.02]' 
+                            : 'opacity-50 grayscale cursor-not-allowed'
+                        }`}
+                        style={{ 
+                          backgroundColor: `${boss.color}15`, 
+                          borderColor: isUnlocked ? boss.color : '#333' 
+                        }}
+                        onClick={() => {
+                          if (isUnlocked) {
+                            setSelectedBossIndex(idx);
+                            setRaidView('room');
+                          }
+                        }}
+                      >
+                        {/* Lock Overlay */}
+                        {!isUnlocked && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10 transition-opacity">
+                            <span className="text-3xl drop-shadow-md">🔒</span>
+                            <div className="absolute bottom-2 text-[6px] text-center w-full px-4 text-white">
+                              {t('raid.requireUnits', { count: BOSSES[idx-1].maxSlots })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-3 items-center">
+                          {/* Boss Thumbnail */}
+                          <div className="w-16 h-20 bg-black/40 pixel-border-sm flex-shrink-0 relative overflow-hidden" style={{ borderColor: boss.color }}>
+                            <img src={boss.image} alt={boss.name} className="w-full h-full object-cover image-pixelated" />
+                            <div className="absolute top-0 right-0 bg-black/70 text-[6px] px-1 text-white">T{boss.tier}</div>
+                          </div>
+
+                          {/* Boss Details */}
+                          <div className="flex-1 flex flex-col justify-center">
+                            <h3 className="text-sm font-bold" style={{ color: boss.color }}>{boss.name}</h3>
+                            
+                            <div className="bg-black/50 p-1.5 mt-1 pixel-border-sm text-[8px]">
+                              <p className="text-gray-300">{t('raid.deployLimit')}: <span className="text-green-400 font-bold">{boss.maxSlots} {t('raid.slots')}</span></p>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-[7px] text-gray-300 mt-2 px-1">
+                              <span className="flex items-center gap-1">
+                                {t('raid.bonus')}: <span className="text-[var(--color-pixel)] font-bold">{boss.bonusLabel}</span>
+                              </span>
+                              <span>ROI: ~{boss.roiDays}d</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Enter Button */}
+                        {isUnlocked && (
+                          <button 
+                            className="w-full mt-3 hover:bg-blue-800 text-white py-1.5 text-[8px] pixel-border-sm transition-colors"
+                            style={{ backgroundColor: `${boss.color}44`, borderColor: boss.color }}
+                          >
+                            {t('raid.enterRaid')}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div className="mt-6 text-center text-[6px] text-gray-500 max-w-xs px-4">
+                  {t('raid.unlockHint')}
+                </div>
+              </section>
+            ) : (
+              <>
+                {!isRaidActive && (
+                  <button 
+                    onClick={() => setRaidView('list')} 
+                    className="w-full mb-3 py-1.5 bg-black/40 text-gray-400 hover:text-white hover:bg-black/60 pixel-border-sm text-[7px] text-left px-3 transition-colors flex items-center gap-2"
+                  >
+                    <span>←</span> {t('raid.backToBoss')}
+                  </button>
+                )}
+                {/* Boss Info Panel */}
+                <section className="flex flex-col items-center mb-4">
+                  <div className="text-center mb-4">
+                    <h2 className="text-[#e74c3c] text-sm animate-pulse">⚔️ {t('raid.bossTitle')}</h2>
+                    <div className="flex items-center justify-center gap-2 mt-1">
+                      <span className="text-white text-[10px]">Tier {currentBoss.tier}:</span>
+                      <span className="text-[12px] font-bold" style={{ color: currentBoss.color }}>{currentBoss.name}</span>
+                      <span className="text-[7px] px-1.5 py-0.5 pixel-border-sm font-bold animate-pulse" style={{ color: currentBoss.color, borderColor: currentBoss.color, backgroundColor: currentBoss.color + '22' }}>{currentBoss.bonusLabel}</span>
+                    </div>
+                  </div>
+
+              <div className="relative w-44 h-56 mb-3">
+                <div 
+                  className={`w-full h-full pixel-border flex items-center justify-center overflow-hidden relative bg-black/20 ${isRaidActive ? '' : 'animate-float'}`}
+                  style={{ borderColor: currentBoss.color }}
+                >
+                  {/* Boss Glow/Aura */}
+                  <div 
+                    className={`absolute inset-0 opacity-20 blur-2xl ${isRaidActive ? 'animate-pulse' : ''}`}
+                    style={{ backgroundColor: currentBoss.color }}
+                  ></div>
+                  
+                  {/* Dynamic Boss Image */}
+                  <img 
+                    src={currentBoss.image} 
+                    alt={currentBoss.name} 
+                    className="w-full h-full object-cover image-pixelated relative z-10"
+                  />
+                  
+                  {/* Active Raid Overlay */}
+                  {isRaidActive && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-end pb-2 bg-gradient-to-t from-black/70 to-transparent">
+                      <div className="text-[8px] text-emerald-400 animate-pulse">{t('raid.mining')}</div>
+                      <div className="text-[10px] text-white font-bold">{progress.earnedTon.toFixed(4)} TON</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* HP Bar — Live during raid */}
+              <div className="w-full max-w-xs bg-[var(--color-hp-bg)] h-5 pixel-border-sm relative">
+                <div 
+                  className="h-full transition-all duration-1000" 
+                  style={{ width: `${(isRaidActive ? progress.hpPercent : 1) * 100}%`, backgroundColor: currentBoss.color }}
+                ></div>
+                <div className="absolute inset-0 flex items-center justify-center text-white text-[8px] drop-shadow-md">
+                  {isRaidActive 
+                    ? `${Math.floor(progress.hpPercent * bossMaxHp).toLocaleString()} / ${bossMaxHp.toLocaleString()} HP`
+                    : (totalAtk > 0 ? `${bossMaxHp.toLocaleString()} / ${bossMaxHp.toLocaleString()} HP` : t('raid.deployHeroToSeeHp'))}
+                </div>
+              </div>
+
+              {/* Raid Timer (shown during active raid) */}
+              {isRaidActive && (
+                <div className="flex items-center gap-3 mt-2 w-full max-w-xs">
+                  <div className="flex-1 text-center bg-black/40 px-2 py-1.5 pixel-border-sm text-[7px]">
+                    <span className="text-gray-400">{t('raid.elapsed')}</span>
+                    <div className="text-white text-[10px] font-bold mt-0.5">{elapsedFormatted}</div>
+                  </div>
+                  <div className="flex-1 text-center bg-black/40 px-2 py-1.5 pixel-border-sm text-[7px]">
+                    <span className="text-gray-400">{t('raid.remaining')}</span>
+                    <div className="text-white text-[10px] font-bold mt-0.5">{remainingFormatted}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stats Row */}
+              <div className="flex items-center gap-2 mt-2 w-full max-w-xs">
+                <div className="flex-1 text-center bg-black/40 px-2 py-1 pixel-border-sm text-[7px]">
+                  <span className="text-orange-400">⚔️ ATK: </span>
+                  <span className="text-white">{totalAtk.toLocaleString()}</span>
+                </div>
+                <div className="flex-1 text-center bg-black/40 px-2 py-1 pixel-border-sm text-[7px]">
+                  <span className="text-emerald-400">⛏️ Mining: </span>
+                  <span className="text-white">{dailyEarning.toFixed(3)} TON/d</span>
+                </div>
+                {totalInvested > 0 && (
+                  <div className="flex-1 text-center bg-black/40 px-2 py-1 pixel-border-sm text-[7px]">
+                    <span className="text-cyan-400">📊 ROI: </span>
+                    <span className="text-white">~{roiDays === Infinity ? '∞' : roiDays.toFixed(1)}d</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Stats Row removed but kept for structure if needed later */}
+            </section>
+
+            {/* Section 1: Deployed Squad */}
+            <section className="mb-3">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-gray-200 text-[10px]">{t('raid.deployedSquad')}</h3>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[8px] ${squadCount >= maxSquadSize ? 'text-[#e74c3c]' : 'text-[#f1c40f]'}`}>
+                    {squadCount} / {maxSquadSize}
+                  </span>
+                  {squadCount > 0 && (
+                    <button 
+                      onClick={undeployAll}
+                      className="pixel-button bg-red-900/60 hover:bg-red-800/80 text-red-300 px-2 py-0.5 text-[6px] pixel-border-sm"
+                    >{ t('raid.clearAll')}</button>
+                  )}
+                  {availableHeroes.length > 0 && !isFull && (
+                    <button 
+                      onClick={deployAll}
+                      className="pixel-button bg-emerald-900/60 hover:bg-emerald-800/80 text-emerald-300 px-2 py-0.5 text-[6px] pixel-border-sm"
+                    >{t('raid.deployAll')}</button>
+                  )}
+                </div>
+              </div>
+
+              {/* 30-slot Grid */}
+              <div className="grid grid-cols-6 gap-1">
+                {Array.from({ length: maxSquadSize }).map((_, i) => {
+                  const hero = deployedHeroes[i];
+                  if (hero) {
+                    return (
+                      <button
+                        key={hero.instanceId}
+                        onClick={() => undeployHero(hero.instanceId)}
+                        onPointerDown={(e) => handlePointerDown(hero, e)}
+                        onPointerUp={handlePointerUp}
+                        onPointerLeave={handlePointerUp}
+                        onContextMenu={(e) => e.preventDefault()}
+                        className="squad-card bg-[var(--color-game-panel)] p-1 pixel-border-sm flex flex-col items-center relative"
+                        style={{ borderColor: hero.color }}
+                        title={`Click to remove ${hero.name}`}
+                      >
+                        <div className="absolute -top-1.5 right-0 px-1 text-[4px] bg-black/90 font-black tracking-tighter border border-white/20" style={{ color: hero.color }}>
+                          {hero.rarity === 'Legendary' ? 'LEGENDARY' : hero.rarity === 'SR' ? 'SUPER RARE' : hero.rarity.toUpperCase()}
+                        </div>
+                        {/* Star Level Indicator (Center Top) */}
+                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 flex gap-[1px] pointer-events-none z-10">
+                          {Array.from({ length: hero.level || 1 }).map((_, idx) => (
+                            <span key={idx} className="text-[#f1c40f] text-[5px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">★</span>
+                          ))}
+                        </div>
+                        <div className="w-8 h-8 flex items-center justify-center relative" style={{ backgroundColor: hero.imageColor }}>
+                          <div className="w-7 h-7"><Sprite char={hero} /></div>
+                          <div className="absolute top-0 left-0 bg-black/60 flex items-center justify-center w-3 h-3 text-[5px] z-10">
+                            {ELEMENT_ICONS[hero.element]}
+                          </div>
+                        </div>
+                        {/* Stats Display */}
+                        <div className="flex flex-col items-center w-full gap-[1px] text-[6px] font-bold mt-0.5 leading-none">
+                          <div className="flex gap-1.5">
+                            <span className="text-red-400">HP:{hero.hp}</span>
+                            <span className="text-orange-400">ATK:{hero.atk}</span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <span className="text-blue-400">DEF:{hero.def}</span>
+                            <span className="text-emerald-400">SPD:{hero.spd}</span>
+                          </div>
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[3px] text-center text-red-400 py-0.5 opacity-0 hover:opacity-100 transition-opacity">
+                          {t('raid.remove')}
+                        </div>
+                      </button>
+                    );
+                  }
+                  return (
+                    <div key={`empty-${i}`} className="squad-slot-empty w-full aspect-square flex items-center justify-center">
+                      <span className="text-[6px] text-gray-600">{i + 1}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Start / Repair / Claim / Cancel Raid Buttons */}
+            {squadCount > 0 && (
+              <div className="mb-6 mt-1 space-y-2 px-1">
+                {!isRaidActive ? (
+                  deployedHeroes.some(h => h.needsRepair) ? (
+                    <button 
+                      onClick={() => { setActiveRepairType('squad'); setShowRepairModal(true); }}
+                      className="pixel-button w-full py-3 text-sm pixel-border text-white bg-red-600 hover:bg-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-all animate-pulse"
+                      style={{ borderColor: '#ef4444' }}
+                    >
+                      {t('raid.repairSquad')}
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => startRaid()}
+                      className="w-full py-3 text-sm text-white font-bold tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,0,0,0.4)] flex items-center justify-center gap-2"
+                      style={{ backgroundColor: '#8a0000', border: '3px solid #ff6b35', outline: '2px solid #b30000', outlineOffset: '1px' }}
+                    >
+                      {t('raid.startMining')} {currentBoss.name.toUpperCase()}
+                    </button>
+                  )
+                ) : (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        const claimed = claimReward();
+                        if (claimed > 0) damageHeroes(deployedHeroes.map(h => h.instanceId));
+                        setShowClaimResult(claimed);
+                      }}
+                      className={`pixel-button flex-1 py-3 text-sm pixel-border text-white ${progress.isComplete ? 'bg-gradient-to-r from-emerald-600 to-emerald-800 fight-button-glow' : 'bg-emerald-700'}`}
+                      style={{ borderColor: '#2ecc71' }}
+                    >
+                      {t('raid.claim')} {progress.earnedTon.toFixed(4)} TON
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setConfirmModal({
+                          isOpen: true,
+                          title: t('confirm.cancelMission'),
+                          message: t('confirm.cancelMsg'),
+                          onConfirm: () => cancelRaid()
+                        });
+                      }}
+                      className="pixel-button px-3 py-3 text-sm pixel-border text-red-400 bg-gray-800 hover:bg-gray-700"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                {!isRaidActive && (
+                  <p className="text-center text-[7px] text-gray-500 pt-1">
+                    {t('raid.deployHint')}
+                  </p>
+                )}
+                {isRaidActive && progress.isComplete && (
+                  <p className="text-center text-[8px] text-emerald-400 animate-pulse font-bold">
+                    {t('raid.raidComplete')}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="section-divider mb-2">
+              <span className="text-[7px] text-gray-500">{t('raid.heroRoster')}</span>
+            </div>
+
+            {/* Section 2: Available Heroes from Roster */}
+            <section>
+              {/* Rarity Filter */}
+              <div className="flex gap-1 mb-2 overflow-x-auto pb-1">
+                {[
+                  { key: 'ALL', label: 'ALL', color: '#f1c40f' },
+                  { key: 'Legendary', label: 'LEG', color: '#f1c40f' },
+                  { key: 'Epic', label: 'EPIC', color: '#9b59b6' },
+                  { key: 'SR', label: 'SR', color: '#2ecc71' },
+                  { key: 'Rare', label: 'RARE', color: '#3498db' },
+                  { key: 'Common', label: 'COM', color: '#95a5a6' },
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setRaidFilter(f.key)}
+                    className={`filter-tab flex-shrink-0 px-1.5 py-1 text-[6px] pixel-border-sm ${raidFilter === f.key ? 'active' : ''}`}
+                    style={{ 
+                      backgroundColor: raidFilter === f.key ? f.color + '33' : 'rgba(0,0,0,0.4)',
+                      borderColor: raidFilter === f.key ? f.color : 'var(--color-game-border)',
+                      color: raidFilter === f.key ? f.color : '#888'
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {userHeroes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                  <span className="text-3xl mb-3 opacity-50">🛡️</span>
+                  <p className="text-[8px] mb-2">{t('raid.noHeroes')}</p>
+                  <button 
+                    onClick={() => setActiveTab('gacha')} 
+                    className="pixel-button bg-[var(--color-pixel)] text-black px-3 py-1.5 text-[7px] pixel-border-sm"
+                  >{t('raid.goSummon')}</button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {(() => {
+                    const deployedSet = new Set(deployedHeroes.map(h => h.instanceId));
+                    const order = ['Legendary', 'Epic', 'SR', 'Rare', 'Common'];
+                    return order.map(rarity => {
+                      if (raidFilter !== 'ALL' && raidFilter !== rarity) return null;
+                      
+                      const groupHeroes = userHeroes
+                        .filter(h => h.rarity === rarity)
+                        .sort((a, b) => (b.obtainedAt || 0) - (a.obtainedAt || 0));
+                      
+                      if (groupHeroes.length === 0) return null;
+
+                      const rarityLabel = rarity === 'SR' ? 'SUPER RARE' : rarity.toUpperCase();
+                      const rarityColor = RARITY_COLORS[rarity] || '#888';
+
+                      return (
+                        <div key={rarity} className="flex flex-col gap-2">
+                           <div className="flex items-center gap-2 px-1">
+                              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                              <span className="text-[6px] font-bold tracking-widest px-2 py-0.5 pixel-border-sm" 
+                                    style={{ color: rarityColor, borderColor: rarityColor + '44', backgroundColor: rarityColor + '11' }}>
+                                 {rarityLabel} ({groupHeroes.length})
+                              </span>
+                              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+                           </div>
+                           
+                           <div className="grid grid-cols-5 gap-1.5 px-1">
+                              {groupHeroes.map(hero => {
+                                 const isDeployed = deployedSet.has(hero.instanceId);
+                                 return (
+                                   <button
+                                     key={hero.instanceId}
+                                     onClick={() => {
+                                       if (isDeployed || hero.needsRepair) return;
+                                       if (isFull) { setShowSquadFullWarning(true); return; }
+                                       deployHero(hero.instanceId);
+                                     }}
+                                     onPointerDown={(e) => handlePointerDown(hero, e)}
+                                     onPointerUp={handlePointerUp}
+                                     onPointerLeave={handlePointerUp}
+                                     onContextMenu={(e) => e.preventDefault()}
+                                     className={`roster-card-deploy bg-[var(--color-game-panel)] p-1 pixel-border-sm flex flex-col items-center relative ${isDeployed ? 'is-deployed opacity-50' : ''} ${hero.needsRepair ? 'opacity-40 grayscale-[0.5]' : ''}`}
+                                     style={{ borderColor: isDeployed ? '#444' : hero.color }}
+                                   >
+                                     {isDeployed && (
+                                       <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                                          <span className={`text-[6px] px-1 ${hero.needsRepair ? 'text-red-400 bg-black/80' : 'text-blue-400 bg-black/70'}`}>
+                                            {hero.needsRepair ? t('raid.broken') : t('raid.inSquad')}
+                                          </span>
+                                       </div>
+                                     )}
+                                     {!isDeployed && hero.needsRepair && (
+                                       <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/50 pointer-events-none">
+                                          <span className="text-[12px] filter drop-shadow">🔧</span>
+                                       </div>
+                                     )}
+                                     <div className="w-9 h-9 flex items-center justify-center mb-0.5 relative" style={{ backgroundColor: hero.imageColor }}>
+                                       <div className="w-7 h-7"><Sprite char={hero} /></div>
+                                       <div className="absolute top-0 left-0 bg-black/60 flex items-center justify-center w-3.5 h-3.5 text-[6px] z-10">
+                                         {ELEMENT_ICONS[hero.element]}
+                                       </div>
+                                     </div>
+                                     <div className="flex flex-col items-center w-full gap-[1px] text-[7px] font-bold leading-none">
+                                       <div className="flex gap-1">
+                                         <span className="text-red-400">HP:{hero.hp}</span>
+                                         <span className="text-orange-400">ATK:{hero.atk}</span>
+                                       </div>
+                                       <div className="flex gap-1">
+                                         <span className="text-blue-400">DEF:{hero.def}</span>
+                                         <span className="text-emerald-400">SPD:{hero.spd}</span>
+                                       </div>
+                                     </div>
+                                   </button>
+                                 );
+                              })}
+                           </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </section>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+        {/* GACHA TAB */}
+        {activeTab === 'gacha' && (
+          <section className="flex flex-col items-center flex-1 pt-0 pb-4 animate-in fade-in duration-300 relative min-h-full overflow-hidden">
+            <div 
+              className="absolute inset-0 z-0 opacity-5 pointer-events-none bg-center bg-no-repeat bg-cover image-pixelated"
+              style={{ backgroundImage: "url('/gacha_bg.jpg')" }}
+            ></div>
+            
+            <div className="relative z-10 w-full flex flex-col items-center flex-1 lg:max-w-md mx-auto">
+              {/* Pity Bar at the very TOP edge */}
+              <div className="w-full bg-black/60 border-b-2 border-yellow-500/50 py-1.5 px-3 flex justify-center items-center gap-2 mb-2">
+                <span className="text-[var(--color-legendary)] text-[7px] font-pixel tracking-tighter">
+                  {t('gacha.pityToLeg')}
+                </span>
+                <span className="text-white text-[8px] font-pixel font-bold">
+                  {legendaryPity} / 50
+                </span>
+                <div className="flex-1 h-1 bg-gray-800 ml-2 pixel-border-sm overflow-hidden min-w-[60px]">
+                  <div 
+                    className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(241,196,15,0.8)] transition-all duration-500" 
+                    style={{ width: `${(legendaryPity / 50) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="w-full flex justify-between items-center mb-2 px-3">
+                  <h2 className="text-[10px] text-[var(--color-pixel)] drop-shadow-md font-pixel tracking-widest">{t('gacha.summon')}</h2>
+                  <button onClick={() => setShowRates(true)} className="pixel-button bg-gray-800/80 hover:bg-gray-700 text-[#f1c40f] border border-[#f1c40f]/50 px-2 py-1 text-[6px] font-pixel flex items-center gap-1 shadow-lg">
+                    <span>(i)</span> {t('gacha.rates')}
+                  </button>
+              </div>
+
+              {/* Featured Drops Area (Fixed 2-Line Layout with ATK, YIELD & PULSE) */}
+              <div className="w-full mb-4 pt-4 pb-1 px-4">
+                 <div className="flex flex-wrap justify-center gap-x-2 gap-y-4 px-1">
+                   {PREVIEW_DATA.map((c, i) => (
+                      <div key={i} className="flex flex-col items-center relative w-[31%]" style={{ color: c.color }}>
+                         <div className="w-full relative flex items-center justify-center mb-1.5 h-12">
+                           {/* Pulsing Glow Background */}
+                           <div 
+                              className="absolute inset-0 rounded-full blur-xl opacity-40 anim-pulse-glow pointer-events-none"
+                              style={{ 
+                                background: `radial-gradient(circle, ${c.color} 0%, transparent 70%)`,
+                              }}
+                           ></div>
+                           
+                           {/* Robot Sprite */}
+                           <div className="relative z-10 w-10 h-10" style={{ filter: `drop-shadow(0 0 10px ${c.color})` }}>
+                             <Sprite char={c} />
+                           </div>
+                         </div>
+                         <div className="flex flex-col items-center gap-0.5 w-full">
+                            <div className="text-[7px] truncate w-full text-center font-black tracking-tighter uppercase font-pixel"
+                                 style={{ textShadow: '1px 1px 0 #000, -1px -1px 0 #000' }}>
+                              {c.rarity === 'SR' ? 'SUPER RARE' : c.rarity.toUpperCase()}
+                            </div>
+                            <div className="flex flex-col items-center w-full bg-black/40 border border-white/10 py-1 rounded-sm gap-0.5">
+                               <span className="text-[7px] text-white/90 font-mono font-bold tracking-tight">
+                                 ATK: {c.atk}
+                               </span>
+                               <span className="text-[8px] text-yellow-400 font-black tracking-tight font-mono">
+                                 {(c.atk * BASE_RATE_PER_ATK).toFixed(3)} TON/D
+                               </span>
+                            </div>
+                         </div>
+                      </div>
+                    ))}
+                 </div>
+              </div>
+
+              {/* Summon Interactive Icons (Moved up 1 line) */}
+              <div className="w-full flex justify-around gap-2 px-2 mt-6 pb-2">
+                 {/* Option 1: x1 */}
+                 <button 
+                   onClick={() => handlePull(1)}
+                   disabled={isPulling}
+                   className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isPulling ? 'opacity-50' : ''}`}
+                 >
+                   <div className="relative">
+                     <img src="/gacha_icon.png" alt="Summon x1" className="w-16 h-16 object-contain image-pixelated animate-float" />
+                     <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white text-[5px] px-1 border border-white font-bold">x1</div>
+                   </div>
+                   <div className="flex items-center gap-2 mt-2 bg-black/60 px-2 py-0.5 pixel-border-sm min-w-[60px] justify-center">
+                     <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
+                     <span className="text-white text-xs font-bold leading-none">1</span>
+                   </div>
+                 </button>
+
+                 {/* Option 2: x5 */}
+                 <button 
+                   onClick={() => handlePull(5)}
+                   disabled={isPulling}
+                   className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isPulling ? 'opacity-50' : ''}`}
+                 >
+                   <div className="relative">
+                     <div className="absolute -bottom-1 -right-1 flex flex-col items-end gap-0.5 z-20">
+                       <div className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[3px] font-bold px-1 py-0.2 border border-white/50 rounded shadow-md animate-pulse uppercase text-center">
+                         SR+1
+                       </div>
+                       <div className="bg-blue-600 text-white text-[5px] px-1 border border-white font-bold">x5</div>
+                     </div>
+                     <img src="/gacha_icon.png" alt="Summon x5" className="w-16 h-16 object-contain image-pixelated animate-float" />
+                   </div>
+                   <div className="flex items-center gap-2 mt-2 bg-black/60 px-2 py-0.5 pixel-border-sm min-w-[60px] justify-center">
+                     <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
+                     <span className="text-white text-xs font-bold leading-none">5</span>
+                   </div>
+                 </button>
+
+                 {/* Option 3: x10 */}
+                 <button 
+                   onClick={() => handlePull(10)}
+                   disabled={isPulling}
+                   className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isPulling ? 'opacity-50' : ''}`}
+                 >
+                   <div className="relative">
+                     <div className="absolute -bottom-1 -right-1 flex flex-col items-end gap-0.5 z-20">
+                       <div className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white text-[3px] font-bold px-1 py-0.2 border border-white/50 rounded shadow-md animate-pulse uppercase text-center">
+                         EPIC+1
+                       </div>
+                       <div className="bg-purple-600 text-white text-[5px] px-1 border border-white font-bold">x10</div>
+                     </div>
+                     <img src="/gacha_icon.png" alt="Summon x10" className="w-16 h-16 object-contain image-pixelated animate-float" />
+                   </div>
+                   <div className="flex items-center gap-2 mt-2 bg-black/60 px-2 py-0.5 pixel-border-sm min-w-[60px] justify-center">
+                     <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
+                     <span className="text-white text-xs font-bold leading-none">10</span>
+                   </div>
+                 </button>
+              </div>
+            </div>
+
+            {/* Gacha Animation Overlay */}
+            {isPulling && (
+              <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+                 <div className="relative flex flex-col items-center">
+                    {/* Background Rays */}
+                    {gachaAnim !== 'falling' && (
+                      <div className="absolute inset-0 anim-gacha-rays opacity-30 pointer-events-none">
+                         <div className="w-96 h-96 bg-gradient-to-tr from-white/0 via-white/40 to-white/0 rounded-full blur-xl"></div>
+                      </div>
+                    )}
+                    <div className={`gacha-capsule ${gachaAnim === 'falling' ? 'anim-gacha-fall' : ''} ${gachaAnim === 'shaking' ? 'anim-gacha-shake' : ''} ${gachaAnim === 'burst' ? 'anim-gacha-burst' : ''}`}>
+                       <div className="gacha-capsule-half gacha-capsule-top"></div>
+                       <div className="gacha-capsule-half gacha-capsule-bottom"></div>
+                       <div className="gacha-capsule-line"></div>
+                    </div>
+                    <div className="mt-8 text-white text-[10px] font-bold tracking-widest animate-pulse">
+                       {gachaAnim === 'falling' && t('gacha.initSummon')}
+                       {gachaAnim === 'shaking' && t('gacha.stabPower')}
+                       {gachaAnim === 'burst' && t('gacha.summonComplete')}
+                    </div>
+                    {gachaAnim === 'burst' && <div className="fixed inset-0 z-[110] anim-gacha-flash"></div>}
+                 </div>
+              </div>
+            )}
+
+            {/* Gacha Result Display Overlays */}
+            {pullResult && !isPulling && (
+              <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-4">
+                <h3 className="text-[#f1c40f] text-xl mb-6 font-pixel uppercase tracking-widest">{t('gacha.summonResult')}</h3>
+                <div className={`grid gap-2 ${pullResult.length > 1 ? (pullResult.length > 10 ? 'grid-cols-10 overflow-y-auto max-h-[60vh] p-2' : 'grid-cols-5') : 'grid-cols-1'} mb-8 w-full max-w-[440px] justify-center px-1`}>
+                  {pullResult.map((char, index) => (
+                    <div key={index} className={`bg-[var(--color-game-panel)] p-1 pixel-border border-[1px] flex flex-col items-center relative ${pullResult.length === 1 ? 'scale-150' : (pullResult.length > 10 ? 'scale-75' : 'scale-100')} transition-transform`} style={{borderColor: char.color}}>
+                       <div className="absolute -top-3 bg-black px-1 text-[4px] whitespace-nowrap z-10" style={{color: char.color}}>
+                         {char.rarity === 'SR' ? 'SR' : char.rarity?.slice(0,3)}
+                       </div>
+                       <div className="w-8 h-8 flex items-center justify-center mb-0.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" style={{ backgroundColor: char.imageColor }}>
+                          <div className="w-6 h-6"><Sprite char={char} /></div>
+                       </div>
+                       {/* Grade Badge */}
+                       {char.grade && (
+                         <div className="absolute top-0 right-0 px-1 text-[5px] font-black" style={{ backgroundColor: GRADE_COLORS[char.grade] || '#888', color: '#000' }}>
+                            {char.grade}
+                         </div>
+                       )}
+                       {/* Element Badge */}
+                       {char.element && (
+                         <div className="absolute top-0 left-0 w-3.5 h-3.5 flex items-center justify-center text-[7px] bg-black/40 rounded-br-[2px]">
+                            {ELEMENT_ICONS[char.element]}
+                         </div>
+                       )}
+                       {pullResult.length === 1 && <span className="text-center text-[8px] mt-1">{char.name}</span>}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={handleConfirmPull} className="pixel-button bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-3 text-xs font-pixel tracking-widest pixel-border-sm">
+                  {t('gacha.confirm')}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* HEROES TAB */}
+        {activeTab === 'heroes' && (
+          <section className="flex flex-col flex-1 animate-in fade-in duration-300 relative overflow-hidden">
+            
+            {/* Dark Watermark Background */}
+            <div 
+              className="absolute inset-0 z-0 opacity-10 pointer-events-none bg-center bg-repeat image-pixelated"
+              style={{ backgroundImage: "url('/heroes_bg.png')", backgroundSize: '380px' }}
+            ></div>
+
+            <div className="relative z-10 w-full flex flex-col flex-1">
+              {/* Header with capacity */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-sm text-[var(--color-pixel)] drop-shadow-md">{t('heroes.title')}</h2>
+                {heroCount > 0 && (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={clearRoster}
+                      className="text-[6px] text-red-500 hover:text-red-400 bg-red-500/10 px-1 py-0.5 border border-red-500/30 rounded-sm w-fit transition-colors"
+                    >
+                      {t('heroes.resetData')}
+                    </button>
+                    {repairAllBill.damagedCount > 0 && (
+                      <button 
+                        onClick={() => { setActiveRepairType('all'); setShowRepairModal(true); }}
+                        className="text-[9px] font-bold text-orange-400 hover:text-orange-300 bg-orange-500/20 px-3 py-1.5 border-2 border-orange-500/40 rounded shadow-[0_0_10px_rgba(251,146,60,0.2)] transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
+                      >
+                        {t('heroes.repairAll')} (x{repairAllBill.damagedCount})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <span className="text-[8px] text-gray-400">{heroCount} / {maxCapacity}</span>
+            </div>
+            
+            {/* Capacity Bar */}
+            <div className="w-full bg-black/60 h-3 pixel-border-sm mb-3 relative overflow-hidden">
+              <div 
+                className={`h-full capacity-bar-fill ${heroCount / maxCapacity > 0.9 ? 'danger' : heroCount / maxCapacity > 0.7 ? 'warning' : ''}`}
+                style={{ width: `${(heroCount / maxCapacity) * 100}%` }}
+              />
+            </div>
+
+            {/* Rarity Filter Tabs */}
+            <div className="flex gap-1 mb-3 overflow-x-auto pb-1">
+              {[
+                { key: 'ALL', label: 'ALL', color: '#f1c40f', count: heroCount },
+                { key: 'Legendary', label: 'LEG', color: '#f1c40f', count: rarityCounts.Legendary },
+                { key: 'Epic', label: 'EPIC', color: '#9b59b6', count: rarityCounts.Epic },
+                { key: 'SR', label: 'SR', color: '#2ecc71', count: rarityCounts.SR },
+                { key: 'Rare', label: 'RARE', color: '#3498db', count: rarityCounts.Rare },
+                { key: 'Common', label: 'COM', color: '#95a5a6', count: rarityCounts.Common },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setHeroFilter(f.key)}
+                  className={`filter-tab flex-shrink-0 px-2 py-1.5 text-[7px] pixel-border-sm flex items-center gap-1 ${heroFilter === f.key ? 'active' : ''}`}
+                  style={{ 
+                    backgroundColor: heroFilter === f.key ? f.color + '33' : 'rgba(0,0,0,0.4)',
+                    borderColor: heroFilter === f.key ? f.color : 'var(--color-game-border)',
+                    color: heroFilter === f.key ? f.color : '#888'
+                  }}
+                >
+                  {f.label}
+                  <span className="bg-black/50 px-1 rounded text-[6px]" style={{ color: f.color }}>{f.count}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Hero Grid */}
+            {sortedHeroes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 text-gray-500 py-12">
+                <span className="text-4xl mb-4 opacity-50">🛡️</span>
+                <p className="text-center text-[10px] mb-2">{heroFilter === 'ALL' ? t('heroes.noHeroes') : t('heroes.noRarityHeroes', { rarity: heroFilter })}</p>
+                {heroFilter === 'ALL' && (
+                  <button 
+                    onClick={() => setActiveTab('gacha')} 
+                    className="pixel-button bg-[var(--color-pixel)] text-black px-4 py-2 text-[8px] pixel-border-sm mt-2"
+                  >
+                    {t('raid.goSummon')}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                {['Legendary', 'Epic', 'SR', 'Rare', 'Common'].map((rarity) => {
+                  if (heroFilter !== 'ALL' && heroFilter !== rarity) return null;
+                  
+                  const groupHeroes = sortedHeroes.filter(h => h.rarity === rarity);
+                  if (groupHeroes.length === 0) return null;
+
+                  const rarityColor = RARITY_COLORS[rarity] || '#888';
+                  const rarityLabel = rarity === 'SR' ? 'SUPER RARE' : rarity.toUpperCase();
+
+                  return (
+                    <div key={rarity} className="flex flex-col gap-3">
+                      {/* Rarity Header */}
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="px-3 py-1 text-[8px] font-bold tracking-widest border-2 pixel-border-sm min-w-[100px] text-center"
+                          style={{ color: rarityColor, borderColor: rarityColor, backgroundColor: rarityColor + '15' }}
+                        >
+                          {rarityLabel} ({groupHeroes.length})
+                        </div>
+                        <div className="h-px flex-1 bg-gradient-to-r from-gray-700 via-gray-800 to-transparent"></div>
+                      </div>
+
+                      {/* Rarity Grid */}
+                      <div className="grid grid-cols-4 gap-2 px-1">
+                        {groupHeroes.map((hero) => (
+                          <button
+                            key={hero.instanceId}
+                            onClick={() => setSelectedHero(hero)}
+                            onPointerDown={(e) => handlePointerDown(hero, e)}
+                            onPointerUp={handlePointerUp}
+                            onPointerLeave={handlePointerUp}
+                            onPointerCancel={handlePointerUp}
+                            onContextMenu={(e) => e.preventDefault()}
+                            className={`hero-card rarity-glow-${hero.rarity} bg-[var(--color-game-panel)] p-1.5 pixel-border-sm flex flex-col items-center relative cursor-pointer select-none touch-none`}
+                            style={{ borderColor: hero.color }}
+                          >
+                            {/* Rarity Badge */}
+                            <div className="absolute -top-1.5 right-0 px-1 text-[4px] bg-black/80 border border-gray-700" style={{ color: hero.color }}>
+                              {hero.rarity === 'SR' ? 'S.Rare' : hero.rarity}
+                            </div>
+                            {/* Level Badge */}
+                            <div className="absolute -top-1.5 left-0 px-1 text-[4px] bg-black/80 border border-gray-700 text-gray-400">
+                              Lv.{hero.level}
+                            </div>
+                            {/* Star Level Indicator (Center Top) */}
+                            <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 flex gap-0.5 pointer-events-none z-10">
+                              {Array.from({ length: hero.level || 1 }).map((_, idx) => (
+                                <span key={idx} className="text-[#f1c40f] text-[6px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">★</span>
+                              ))}
+                            </div>
+                            {/* Sprite Area */}
+                            <div className="w-12 h-12 flex items-center justify-center mb-1 relative" style={{ backgroundColor: hero.imageColor }}>
+                              <div className="w-10 h-10">
+                                <Sprite char={hero} />
+                              </div>
+                            </div>
+                            {/* Element Icon - Moved below Level Badge */}
+                            <div className="absolute top-2 left-0 w-3.5 h-3.5 bg-black/80 flex items-center justify-center rounded-sm text-[7px] z-10 border border-white/5">
+                              {ELEMENT_ICONS[hero.element]}
+                            </div>
+                            {/* Name */}
+                            <span className="text-[5px] text-gray-400 truncate w-full text-center leading-tight mb-0.5">{hero.name}</span>
+                            {/* Stats */}
+                            <div className="flex flex-col items-center w-full gap-[2px] text-[7px] font-bold leading-none mt-0.5">
+                              <div className="flex gap-2">
+                                <span className="text-red-400">HP:{hero.hp}</span>
+                                <span className="text-orange-400">ATK:{hero.atk}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <span className="text-blue-400">DEF:{hero.def}</span>
+                                <span className="text-emerald-400">SPD:{hero.spd}</span>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            </div>
+          </section>
+        )}
+
+        {/* PVP Arena Tab */}
+        {activeTab === 'rank' && (
+          <PvpArena 
+            userHeroes={userHeroes} 
+            pvpStats={pvpStats} 
+            setPvpStats={setPvpStats} 
+            onLongPressStart={handlePointerDown}
+            onLongPressEnd={handlePointerUp}
+          />
+        )}
+
+        {/* ARCADE TAB */}
+        {activeTab === 'arcade' && (
+          <ArcadeBetting pvpStats={pvpStats} setPvpStats={setPvpStats} />
+        )}
+
+        {/* EARN / WITHDRAW TAB */}
+        {activeTab === 'earn' && (
+          <section className="flex flex-col flex-1 animate-in fade-in duration-300 relative px-2">
+            
+            {/* Dark Watermark Background */}
+            <div 
+              className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none bg-center bg-no-repeat bg-cover image-pixelated"
+              style={{ backgroundImage: "url('/gacha_bg.jpg')" }}
+            ></div>
+
+            <div className="relative z-10 w-full flex flex-col flex-1">
+              <h2 className="text-xl text-center py-4 mb-2 tracking-widest text-[#f1c40f] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">{t('withdraw.title')}</h2>
+              
+              <div className="flex flex-col gap-6 px-1 pb-10">
+                
+                {/* Input 1: Amount */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-end px-1">
+                    <span className="text-[10px] text-gray-300 font-bold">{t('withdraw.amountLabel')}</span>
+                    <span className="text-[8px] text-[#f1c40f]">{t('withdraw.max')}: 12.5 TON</span>
+                  </div>
+                  <div className="flex items-stretch h-14 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
+                    <input 
+                      type="text"
+                      value={withdrawAmount}
+                      onChange={handleWithdrawAmountChange}
+                      placeholder="0.00"
+                      className="flex-1 bg-transparent border-none text-white px-4 text-right font-mono text-xl outline-none placeholder:text-gray-700"
+                    />
+                    <button onClick={() => setWithdrawAmount('12.5')} className="h-full px-4 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
+                      <IconTon className="w-11 h-11 drop-shadow-lg hover:scale-110 transition-transform" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Input 2: Address */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] text-gray-300 px-1 font-bold">{t('withdraw.addressLabel')}</label>
+                  <div className="flex items-stretch h-14 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
+                    <input 
+                      type="text"
+                      value={withdrawAddress}
+                      onChange={(e) => setWithdrawAddress(e.target.value)}
+                      placeholder="EQA..."
+                      className="flex-1 bg-transparent border-none text-gray-400 px-4 font-mono text-[9px] outline-none placeholder:text-gray-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Calculations Box */}
+                <div className="flex justify-center my-1 relative">
+                  <div className="bg-black/40 pixel-border border-[#2a2e3a] w-full p-4 space-y-3 relative overflow-hidden">
+                    {/* Retro lines */}
+                    <div className="absolute top-0 bottom-0 left-0 w-1 bg-[var(--color-game-panel)] opacity-50"></div>
+                     <div className="flex justify-between items-center text-[10px]">
+                       <span className="text-gray-400 font-bold tracking-wide">{t('withdraw.amount')}</span>
+                       <span className="font-mono text-white text-xs">{withdrawAmount || '0.00'}</span>
+                     </div>
+                     <div className="flex justify-between items-center text-[10px]">
+                       <span className="text-red-400 font-bold tracking-wide">{t('withdraw.fee')}</span>
+                       <span className="font-mono text-red-500 text-xs">-{withdrawAmount ? (withdrawAmount * 0.1).toFixed(2) : '0.00'}</span>
+                     </div>
+                     <div className="w-full border-t border-dashed border-[#444] my-2"></div>
+                     <div className="flex justify-between items-center text-[11px] font-black">
+                       <span className="text-[#f1c40f] drop-shadow-sm tracking-wide">{t('withdraw.netAmount')}</span>
+                       <span className="font-mono text-[#f1c40f] text-sm drop-shadow-md">{withdrawAmount ? (withdrawAmount * 0.9).toFixed(2) : '0.00'}</span>
+                     </div>
+                  </div>
+                </div>
+
+                {/* Dev Fee Reminder */}
+                <div className="bg-[#13141a] pixel-border border-[#1f2129] flex flex-col relative mt-2 shadow-lg">
+                   <div className="flex items-start gap-4 p-4 pb-2">
+                     <span className="text-3xl opacity-80 drop-shadow-[0_0_5px_rgba(255,255,255,0.2)]">🖥️</span>
+                     <div className="flex flex-col gap-1 pt-1">
+                       <span className="text-[#a0a5b5] text-[10px] font-bold">{t('withdraw.devFeeTitle')}</span>
+                       <span className="text-[#6a7185] text-[7px] leading-relaxed">{t('withdraw.devFeeDesc1')}<br/>{t('withdraw.devFeeDesc2')}</span>
+                     </div>
+                   </div>
+                   <div className="bg-[#2a0e0e]/80 border-t-2 border-[#ff3344] p-2 mt-2">
+                     <p className="text-[#ff5555] text-[7px] leading-relaxed text-center font-bold tracking-widest drop-shadow-sm">
+                       ⚠ {t('withdraw.warning1')}<br/>{t('withdraw.warning2')} ⚠
+                     </p>
+                   </div>
+                </div>
+
+                {/* Submit Button */}
+                <div className="mt-4 mb-8">
+                  <button 
+                    disabled={!withdrawAmount || !withdrawAddress}
+                    className="w-full py-4 text-sm font-bold tracking-widest text-[#111] flex justify-center items-center gap-3 transition-all relative overflow-hidden"
+                    style={{
+                       backgroundColor: (!withdrawAmount || !withdrawAddress) ? '#4a4a4a' : '#f1c40f',
+                       border: '4px solid',
+                       borderColor: (!withdrawAmount || !withdrawAddress) ? '#222' : '#ffffff',
+                       outline: '3px solid',
+                       outlineColor: (!withdrawAmount || !withdrawAddress) ? '#333' : '#b28e00',
+                       outlineOffset: '-2px',
+                       boxShadow: (!withdrawAmount || !withdrawAddress) ? 'none' : 'inset -2px -6px 0px 0px rgba(0,0,0,0.2)',
+                       filter: (!withdrawAmount || !withdrawAddress) ? 'grayscale(100%)' : 'drop-shadow(0 0 10px rgba(241,196,15,0.3))',
+                    }}
+                  >
+                    {!withdrawAmount || !withdrawAddress ? (
+                      <span className="text-gray-600">{t('withdraw.fillAll')}</span>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <IconTon className="w-10 h-10 drop-shadow-lg" />
+                        <span className="drop-shadow-sm text-lg">{t('withdraw.button')}</span>
+                        <IconTon className="w-10 h-10 drop-shadow-lg" />
+                      </div>
+                    )}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* REFERRAL TAB */}
+        {activeTab === 'referral' && (
+          <ReferralHub referralData={referralData} onClaim={claimRewards} balance={balance} />
+        )}
+
+      </main>
+
+      {/* Drop Rates Modal */}
+      {showRates && (
+        <div className="fixed inset-0 z-[70] bg-black/80 flex items-center justify-center p-4">
+           <div className="bg-[var(--color-game-panel)] p-4 pixel-border w-full max-w-xs relative">
+              <button 
+                onClick={() => setShowRates(false)} 
+                className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 flex items-center justify-center pixel-border-sm pixel-button"
+              >X</button>
+              <h3 className="text-[#f1c40f] mb-4 text-center">{t('rates.title')}</h3>
+              <table className="w-full text-left text-[8px] mb-4">
+                <tbody>
+                  <tr className="text-[var(--color-legendary)]"><td className="py-2 border-b border-gray-700">{t('common.legendary')}</td><td className="text-right border-b border-gray-700">{(DROP_RATES.Legendary / 100).toFixed(1)}%</td></tr>
+                  <tr className="text-[var(--color-epic)]"><td className="py-2 border-b border-gray-700">{t('common.epic')}</td><td className="text-right border-b border-gray-700">{(DROP_RATES.Epic / 100).toFixed(1)}%</td></tr>
+                  <tr className="text-[var(--color-sr)]"><td className="py-2 border-b border-gray-700">{t('common.superRare')}</td><td className="text-right border-b border-gray-700">{(DROP_RATES.SR / 100).toFixed(1)}%</td></tr>
+                  <tr className="text-[var(--color-rare)]"><td className="py-2 border-b border-gray-700">{t('common.rare')}</td><td className="text-right border-b border-gray-700">{(DROP_RATES.Rare / 100).toFixed(1)}%</td></tr>
+                  <tr className="text-[var(--color-common)]"><td className="py-2">{t('common.common')}</td><td className="text-right">{(DROP_RATES.Common / 100).toFixed(1)}%</td></tr>
+                </tbody>
+              </table>
+              <div className="text-[6px] text-gray-400 bg-black/40 p-2 leading-relaxed">
+                {t('rates.epicGuaranteed')}<br/>
+                {t('rates.legGuaranteed')}<br/>
+                {t('rates.baseRate')}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Energy Depleted Modal */}
+      {repairTarget && (
+        <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+           <div className="bg-[var(--color-game-panel)] p-1 pixel-border w-full max-w-sm relative flex flex-col items-center">
+              
+              <div className="w-full border-b-2 border-[#ff3344] bg-[#2a0e0e] p-4 flex flex-col items-center justify-center gap-2 mb-4">
+                 <div className="text-4xl animate-pulse drop-shadow-[0_0_8px_rgba(255,0,0,0.8)]">🔋❌</div>
+                 <h2 className="text-[#ff3344] text-xl animate-pulse text-center leading-tight">{t('modal.unitOffline')}</h2>
+              </div>
+              
+              <div className="flex flex-col items-center w-full px-4 text-center relative mb-6">
+                 <div className="w-24 h-24 bg-gray-800 pixel-border flex items-center justify-center mb-4 grayscale animate-glitch opacity-70 p-2" style={{borderColor: '#555'}}>
+                    <div className="w-16 h-16"><Sprite char={repairTarget} /></div>
+                 </div>
+                 
+                 <div className="text-[10px] space-y-2 w-full text-left bg-black/50 p-3 pixel-border-sm">
+                   <p className="text-white">Unit: <span className="text-gray-400">PIXEL_G#123 ({selectedHero?.rarity} {selectedHero?.name})</span></p>
+                   <p className="text-[#ff3344]">HP: 0 / {selectedHero?.hp?.toLocaleString()} min.</p>
+                   <p className="text-gray-400 text-[8px] mt-1">{t('modal.reason')}</p>
+                 </div>
+              </div>
+
+              <div className="w-full flex gap-3 px-4 pb-4">
+                 <button onClick={() => setRepairTarget(null)} className="pixel-button flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 text-[10px] pixel-border-sm leading-tight text-center">
+                   {t('modal.goToInventory').split('\n').map((line, i) => <span key={i}>{line}{i === 0 && <br/>}</span>)}
+                 </button>
+                 <button className="pixel-button flex-1 bg-gray-600 text-gray-400 py-3 text-[10px] pixel-border-sm cursor-not-allowed leading-tight text-center">
+                   {t('modal.repairNow').split('\n').map((line, i) => <span key={i}>{line}{i === 0 && <br/>}</span>)}
+                 </button>
+              </div>
+              
+              <button 
+                onClick={() => setRepairTarget(null)} 
+                className="absolute -top-3 -right-3 bg-red-600 hover:bg-red-500 text-white w-8 h-8 flex items-center justify-center pixel-border-sm pixel-button z-10"
+              >X</button>
+           </div>
+        </div>
+      )}
+      {selectedHero && !mergeMode && (() => {
+        const heroLevel = selectedHero.level || 1;
+        const dupes = getDuplicates(selectedHero.instanceId);
+        const sameRarity = getSameRarityHeroes(selectedHero.rarity, selectedHero.instanceId);
+        const isMaxLevel = heroLevel >= 5;
+        const canUpgrade = dupes.length > 0 && !isMaxLevel && balance >= 0.5;
+        const isLegendary = selectedHero.rarity === 'Legendary';
+        const canMerge = sameRarity.length >= 2 && !isLegendary && balance >= 0.5;
+
+        const getSpriteBg = (rarity) => {
+          switch(rarity) {
+            case 'Legendary': return '#7a6000';
+            case 'Epic': return '#4c1d95';
+            case 'SR': return '#064e3b';
+            case 'Rare': return '#1e3a8a';
+            default: return '#334155';
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-[70] bg-black/85 flex items-center justify-center p-4">
+            <div className="bg-[#0f172a] border-[3px] p-3 w-full max-w-[340px] relative rounded-xl transition-colors duration-300" style={{ borderColor: selectedHero.color, boxShadow: `0 0 20px ${selectedHero.color}66, inset 0 0 15px ${selectedHero.color}33` }}>
+              <div className="text-center mb-3">
+                <h2 className="text-[13px] font-black tracking-widest uppercase px-8 truncate" style={{ color: selectedHero.color, textShadow: `0 0 8px ${selectedHero.color}` }}>{selectedHero.name}</h2>
+              </div>
+              
+              <button onClick={() => setSelectedHero(null)} 
+                className="absolute top-2.5 right-2.5 bg-[#d92c2c] hover:bg-[#ff4d4d] text-white w-7 h-7 flex items-center justify-center text-[14px] font-black z-20 rounded-lg border-2 border-[#ff8080] shadow-[0_0_10px_rgba(217,44,44,0.6)] transition-all">✕</button>
+              
+              <div className="flex gap-2 mb-3">
+                <div className="w-[130px] h-[130px] shrink-0 border-[2px] rounded-lg p-2 flex flex-col items-center justify-center relative overflow-hidden" 
+                  style={{ backgroundColor: getSpriteBg(selectedHero.rarity), borderColor: selectedHero.color, boxShadow: `inset 0 0 20px ${selectedHero.color}26` }}>
+                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 2px, ${selectedHero.color} 2px, ${selectedHero.color} 4px)` }}></div>
+                  <div className="w-24 h-24 relative z-10 scale-125 mb-2"><Sprite char={selectedHero} /></div>
+                  <div className="absolute top-1.5 left-1.5 bg-black/70 px-1 py-0.5 rounded border border-white/20 text-[6px] font-bold z-20 flex gap-1 items-center">
+                    <span className="text-[8px]">{ELEMENT_ICONS[selectedHero.element]}</span>
+                    <span style={{ color: selectedHero.color }}>{selectedHero.rarity}</span>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col border-[2px] bg-[#020617] rounded-lg p-2.5" style={{ borderColor: selectedHero.color }}>
+                  <div className="mb-2 pb-2 border-b-2 border-[#1e3a5f]">
+                    <div className="text-white text-[11px] font-black tracking-widest mb-1.5 flex items-center gap-1 drop-shadow-md">
+                      LV. {heroLevel}/5
+                      {isMaxLevel && <span className="text-[7px] text-yellow-400 font-black ml-1 animate-pulse px-1 bg-black/80 rounded border border-yellow-400">MAX</span>}
+                    </div>
+                    <div className="flex gap-1">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <span key={i} className={`text-[14px] ${i < heroLevel ? 'text-[#ffcc00]' : 'text-transparent'} relative`} style={{ WebkitTextStroke: i < heroLevel ? '0px' : '1px #475569' }}>★</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 flex flex-col justify-between py-0.5 space-y-2">
+                    <div className="flex justify-between items-center text-[10px] font-black px-1 bg-white/5 rounded-sm py-0.5 border-l-2 border-red-500">
+                      <span className="flex items-center gap-1.5"><span className="text-red-500 text-[11px]">❤️</span> <span className="text-white tracking-widest drop-shadow">HP</span></span>
+                      <span className="text-[#34d399]">{selectedHero.hp?.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-black px-1 bg-white/5 rounded-sm py-0.5 border-l-2 border-orange-400">
+                      <span className="flex items-center gap-1.5"><span className="text-orange-400 text-[11px]">⚔️</span> <span className="text-white tracking-widest drop-shadow">ATK</span></span>
+                      <span className="text-[#34d399]">{selectedHero.atk}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-black px-1 bg-white/5 rounded-sm py-0.5 border-l-2 border-blue-400">
+                      <span className="flex items-center gap-1.5"><span className="text-blue-400 text-[11px]">🛡️</span> <span className="text-white tracking-widest drop-shadow">DEF</span></span>
+                      <span className="text-[#34d399]">{selectedHero.def}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-black px-1 bg-white/5 rounded-sm py-0.5 border-l-2 border-teal-400">
+                      <span className="flex items-center gap-1.5"><span className="text-teal-400 text-[11px]">👟</span> <span className="text-white tracking-widest drop-shadow">SPD</span></span>
+                      <span className="text-[#34d399]">{selectedHero.spd}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => { setActiveTab('raid'); setSelectedHero(null); }}
+                  className="flex-1 h-16 relative overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-lg rounded-xl"
+                  style={{ backgroundImage: "url('/bar.jpg')", backgroundSize: "300% 100%", backgroundPosition: "0% 0%", imageRendering: "pixelated", border: "none" }} 
+                />
+                <button 
+                  onClick={() => {
+                    if (!canUpgrade) return;
+                    setConfirmModal({
+                      isOpen: true,
+                      title: t('heroes.upgradeConfirm'),
+                      message: `${t('heroes.upgradeWarning')}\n\n${t('heroes.cost')}: 0.5 TON`,
+                      onConfirm: () => {
+                        const result = upgradeHero(selectedHero.instanceId, dupes[0].instanceId);
+                        if (result) {
+                          setBalance(prev => prev - 0.5);
+                          setSelectedHero(result);
+                          setUpgradeResult(result);
+                          setTimeout(() => setUpgradeResult(null), 2500);
+                        }
+                      }
+                    });
+                  }}
+                  disabled={!canUpgrade}
+                  className={`flex-1 h-16 relative overflow-hidden transition-all ${canUpgrade ? 'hover:scale-105 active:scale-95 shadow-lg' : 'opacity-40 grayscale pointer-events-none'}`}
+                  style={{ backgroundImage: "url('/bar.jpg')", backgroundSize: "300% 100%", backgroundPosition: "50% 0%", imageRendering: "pixelated", border: "none", borderRadius: "12px" }}>
+                  {!isMaxLevel && canUpgrade && <span className="absolute bottom-1 w-full text-center text-[5px] font-mono text-white font-bold bg-black/40 py-0.5 tracking-widest">REQ: 1</span>}
+                  {isMaxLevel && <span className="absolute bottom-1 w-full text-center text-[5px] font-mono text-yellow-400 font-bold bg-black/60 py-0.5">MAXED</span>}
+                </button>
+                <button 
+                  onClick={() => {
+                    if (!canMerge) return;
+                    setMergeSourceHero(selectedHero);
+                    setMergeSelections([]);
+                    setMergeMode(true);
+                  }}
+                  disabled={!canMerge}
+                  className={`flex-1 h-16 relative overflow-hidden transition-all ${canMerge ? 'hover:scale-105 active:scale-95 shadow-lg' : 'opacity-40 grayscale pointer-events-none'}`}
+                  style={{ backgroundImage: "url('/bar.jpg')", backgroundSize: "300% 100%", backgroundPosition: "100% 0%", imageRendering: "pixelated", border: "none", borderRadius: "12px" }}>
+                  {!isLegendary && canMerge && <span className="absolute bottom-1 w-full text-center text-[5px] font-mono text-white font-bold bg-black/40 py-0.5 tracking-widest">REQ: 3</span>}
+                  {isLegendary && <span className="absolute bottom-1 w-full text-center text-[5px] font-mono text-gray-400 bg-black/60 py-0.5 uppercase tracking-tighter">Max Tier</span>}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══════ Upgrade Success Modal ═══════ */}
+      {upgradeResult && (
+        <div className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4 min-h-screen animate-in fade-in duration-300">
+           <div className="bg-[#161922] w-full max-w-[420px] border-[4px] border-[#000] relative shadow-[10px_10px_0_0_#000] overflow-hidden">
+              {/* Blue Success Header */}
+              <div className="bg-[#3b82f6] border-b-[4px] border-[#000] px-5 py-4 flex items-center gap-4">
+                 <span className="text-white text-2xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">⬆️</span>
+                 <h3 className="text-white text-base sm:text-lg font-black tracking-[0.1em] uppercase drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)] leading-none pt-1">
+                   {t('heroes.upgradeSuccess') || "UPGRADE SUCCESS!"}
+                 </h3>
+              </div>
+              
+              <div className="p-8 sm:p-10 flex flex-col items-center">
+                 <div className="w-24 h-24 mb-6 relative">
+                    <div className="absolute inset-0 bg-blue-500/20 blur-xl animate-pulse"></div>
+                    <div className="relative z-10 w-full h-full transform scale-125 anim-float-gentle" style={{ filter: `drop-shadow(0 0 10px ${upgradeResult.color})` }}>
+                       <Sprite char={upgradeResult} />
+                    </div>
+                 </div>
+                 
+                 <h4 className="text-white text-lg font-black mb-1">{upgradeResult.name}</h4>
+                 <div className="flex gap-1 mb-4">
+                    {Array.from({ length: upgradeResult.level || 1 }).map((_, idx) => (
+                      <span key={idx} className="text-[#f1c40f] text-lg drop-shadow-[0_0_8px_rgba(241,196,15,0.6)] animate-bounce" style={{ animationDelay: `${idx * 0.1}s` }}>★</span>
+                    ))}
+                 </div>
+                 <div className="text-blue-400 text-xs font-black tracking-widest uppercase mb-8">
+                   REACHED LEVEL {upgradeResult.level}
+                 </div>
+                 
+                 <button 
+                   onClick={() => setUpgradeResult(null)}
+                   className="w-full h-14 bg-[#3b82f6] hover:bg-[#4f92ff] text-white text-[12px] font-black tracking-[0.15em] uppercase transition-all border-[4px] border-[#60a5fa] border-b-[#1d4ed8] border-r-[#1d4ed8] active:translate-y-1 active:shadow-none"
+                 >
+                   {t('common.confirm') || "CONFIRM"}
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* ═══════ Merge Selection Popup ═══════ */}
+      {mergeMode && mergeSourceHero && (() => {
+        const rarity = mergeSourceHero.rarity;
+        const available = getSameRarityHeroes(rarity, mergeSourceHero.instanceId);
+        const RARITY_NEXT = { Common: 'Rare', Rare: 'SR', SR: 'Epic', Epic: 'Legendary' };
+        const nextRarity = RARITY_NEXT[rarity];
+        const canConfirm = mergeSelections.length === 3 && balance >= 0.5;
+
+        return (
+          <div className="fixed inset-0 z-[100] bg-[#0f111a]/95 backdrop-blur-md flex flex-col p-4 md:p-6 animate-in fade-in duration-200">
+            <div className="flex-1 flex flex-col max-w-md mx-auto w-full overflow-hidden relative">
+              
+              {/* Header section with absolute cancel button */}
+              <div className="mb-6 relative flex flex-col pt-1">
+                <h2 className="text-[#e2b4ff] text-[18px] sm:text-[22px] font-black mb-1 tracking-wide" style={{ textShadow: '2px 2px 0 rgba(0,0,0,0.8), 0 0 10px rgba(168,85,247,0.4)', fontFamily: 'var(--font-heading)' }}>
+                  {t('heroes.selectMerge') || "Select 3 mechs to merge"}
+                </h2>
+                <div className="text-[10px] text-gray-500 font-mono tracking-wider font-bold">
+                  3× {rarity === 'SR' ? 'Super Rare' : rarity} <span className="text-gray-400">→</span> 1× {nextRarity === 'SR' ? 'Super Rare' : nextRarity} | {t('heroes.cost')}: 0.5 TON
+                </div>
+                
+                <button 
+                  onClick={() => { setMergeMode(false); setMergeSelections([]); }} 
+                  className="absolute top-0 right-0 bg-[#262938] border-2 border-[#1c1f2e] text-gray-400 text-[10px] font-bold px-3 py-1.5 hover:bg-red-500/80 hover:text-white hover:border-red-400 transition-all shadow-[0_4px_10px_rgba(0,0,0,0.5)] uppercase tracking-widest"
+                >
+                  {t('common.cancel') || "CANCEL"}
+                </button>
+              </div>
+
+              {/* Selected Preview area */}
+              <div className="flex gap-2 sm:gap-3 mb-8 justify-center items-center">
+                {Array.from({ length: 3 }).map((_, i) => {
+                  const sel = mergeSelections[i] ? available.find(h => h.instanceId === mergeSelections[i]) || userHeroes.find(h => h.instanceId === mergeSelections[i]) : null;
+                  return (
+                    <div 
+                      key={i} 
+                      className={`w-16 h-20 sm:w-20 sm:h-24 border-[3px] flex flex-col items-center justify-center transition-all ${sel ? 'bg-black/60 shadow-[0_0_15px_rgba(0,0,0,0.8)]' : 'border-dashed border-[#2f3549] bg-transparent'}`} 
+                      style={sel ? { borderColor: sel.color } : {}}
+                    >
+                      {sel ? (
+                         <div className="w-12 h-12" style={{ filter: `drop-shadow(0 0 4px ${sel.color})` }}><Sprite char={sel} /></div>
+                      ) : (
+                        <span className="text-[#2f3549] text-3xl font-light">?</span>
+                      )}
+                    </div>
+                  );
+                })}
+                
+                <div className="flex items-center text-gray-500 text-xl font-light mx-1 sm:mx-2">→</div>
+                
+                <div className="w-16 h-20 sm:w-20 sm:h-24 border-[3px] border-dashed border-purple-600 bg-purple-900/10 flex items-center justify-center animate-pulse shadow-[inset_0_0_20px_rgba(168,85,247,0.1)]">
+                  <span className="text-[#fcb95b] text-3xl font-black drop-shadow-[0_0_5px_rgba(252,185,91,0.6)]">✨</span>
+                </div>
+              </div>
+
+              {/* Hero Grid - scrollable */}
+              <div className="flex-1 overflow-y-auto no-scrollbar pb-6 relative">
+                <div className="grid grid-cols-4 sm:grid-cols-4 gap-3 sm:gap-4 px-1">
+                  {available.map(hero => {
+                    const isSelected = mergeSelections.includes(hero.instanceId);
+                    return (
+                      <button
+                        key={hero.instanceId}
+                        onClick={() => {
+                          if (isSelected) {
+                            setMergeSelections(prev => prev.filter(id => id !== hero.instanceId));
+                          } else if (mergeSelections.length < 3) {
+                            setMergeSelections(prev => [...prev, hero.instanceId]);
+                          }
+                        }}
+                        className={`flex flex-col items-center relative transition-all w-full p-1 sm:p-1.5 bg-[#0a0c10] ${isSelected ? 'scale-[1.03] z-10 opacity-100' : 'opacity-70 grayscale-[20%] hover:grayscale-0 hover:opacity-100 hover:border-gray-500'}`}
+                        style={{ 
+                          border: `2px solid ${isSelected ? hero.color : '#3b435a'}`, 
+                          boxShadow: isSelected ? `0 0 15px ${hero.color}50` : '0 4px 6px rgba(0,0,0,0.3)' 
+                        }}
+                      >
+                        {isSelected && (
+                          <div className="absolute -top-2 -right-2 w-5 h-5 bg-[#a855f7] border border-purple-300 text-white text-[10px] font-black flex items-center justify-center rounded-sm z-20 shadow-md">
+                            {mergeSelections.indexOf(hero.instanceId) + 1}
+                          </div>
+                        )}
+                        <div className="w-full aspect-square flex items-center justify-center mb-1 bg-[#1a1d27]" style={isSelected ? { backgroundColor: hero.imageColor + '30' } : {}}>
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 relative" style={isSelected ? { filter: `drop-shadow(0 0 5px ${hero.color})` } : {}}>
+                            <Sprite char={hero} />
+                          </div>
+                        </div>
+                        <div className="flex flex-col w-full px-0.5 justify-center items-center pb-0.5">
+                          <div className="text-[6px] text-gray-300 truncate w-full text-center font-bold">{hero.name}</div>
+                          <div className="text-[5.5px] text-gray-500 font-mono tracking-wider mt-[1px]">Lv.{hero.level || 1}</div>
+                          <div className="flex gap-0.5 justify-center mt-0.5">
+                            {Array.from({ length: hero.level || 1 }).map((_, idx) => (
+                              <span key={idx} className="text-[#f1c40f] text-[5px]">★</span>
+                            ))}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {available.length < 2 && (
+                  <div className="text-center text-gray-500 text-[10px] sm:text-xs mt-8 font-bold border-t border-dashed border-gray-800 pt-6">
+                     {t('heroes.notEnoughToMerge', { rarity: rarity === 'SR' ? 'Super Rare' : rarity }) || `You need at least 3× ${rarity === 'SR' ? 'Super Rare' : rarity} robots to merge.`}
+                  </div>
+                )}
+              </div>
+
+              {/* Confirm Button Footer */}
+              <div className="pt-4 border-t border-white/5 pb-2">
+                <button
+                  onClick={() => {
+                    if (!canConfirm) return;
+                    setConfirmModal({
+                      isOpen: true,
+                      title: t('heroes.mergeConfirm'),
+                      message: `${t('heroes.mergeWarning')}\n\n${t('heroes.cost')}: 0.5 TON`,
+                      onConfirm: () => {
+                        // Start Fusion Animation Sequence
+                        const sources = mergeSelections.map(id => available.find(h => h.instanceId === id) || userHeroes.find(h => h.instanceId === id));
+                        setFusionSourceHeroes(sources);
+                        setIsMerging(true);
+                        setMergeMode(false);
+                        
+                        setTimeout(() => {
+                          const result = mergeHeroes(mergeSelections);
+                          if (result) {
+                            setBalance(prev => prev - 0.5);
+                            setIsMerging(false);
+                            setMergeSelections([]);
+                            setMergeSourceHero(null);
+                            setSelectedHero(null);
+                            setMergeResult(result);
+                          } else {
+                            setIsMerging(false);
+                          }
+                        }, 2500); // 2.5s Fusion sequence
+                      }
+                    });
+                  }}
+                  disabled={!canConfirm}
+                  className={`w-full h-[52px] sm:h-[60px] relative flex shadow-[0_4px_15px_rgba(0,0,0,0.6)] items-center justify-center text-[11px] sm:text-[13px] font-black transition-all border-[3px] tracking-wide ${canConfirm ? 'bg-[#7c3aed] hover:bg-[#8b5cf6] border-[#a78bfa] text-white animate-pulse' : 'bg-[#212638] border-[#313750] text-gray-500'}`}
+                  style={{ textShadow: canConfirm ? '1px 1px 0 rgba(0,0,0,0.8)' : '1px 1px 0 rgba(0,0,0,0.5)' }}
+                >
+                  {mergeSelections.length < 3 ? `Select 3 mechs to merge (${mergeSelections.length}/3)` : `MERGE TO ${nextRarity === 'SR' ? 'SUPER RARE' : nextRarity.toUpperCase()} (0.5 TON)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══════ Merging Animation Overlay ═══════ */}
+      {isMerging && (
+        <div className="fixed inset-0 z-[250] bg-[#0d0d16] flex flex-col items-center justify-center p-6 overflow-hidden">
+          {/* Fusion Vortex */}
+          <div className="relative w-64 h-64 flex items-center justify-center">
+            {/* Pulsing Core */}
+            <div className={`absolute w-32 h-32 rounded-full blur-3xl opacity-60 animate-pulse`} 
+              style={{ backgroundColor: fusionSourceHeroes[0]?.color || '#a855f7' }}></div>
+            
+            {/* Rotating Beams */}
+            <div className="absolute inset-0 anim-fusion-vortex flex items-center justify-center">
+              {[0, 45, 90, 135, 180, 225, 270, 315].map(deg => (
+                <div key={deg} className={`absolute w-1 h-32 origin-bottom anim-fusion-beam opacity-40`} 
+                  style={{ transform: `rotate(${deg}deg)`, backgroundColor: fusionSourceHeroes[0]?.color }}></div>
+              ))}
+            </div>
+
+            {/* Merging Mechs */}
+            {fusionSourceHeroes.map((hero, i) => {
+              return (
+                <div 
+                  key={i} 
+                  className="absolute w-20 h-20 animate-in slide-in-from-top-20 duration-1000 flex items-center justify-center"
+                  style={{ 
+                    animation: `fusion-vortex 1.5s ease-in-out forwards`,
+                    animationDelay: `${i * 0.1}s`
+                  }}
+                >
+                  <div className="w-16 h-16 transform scale-125" style={{ filter: `drop-shadow(0 0 10px ${hero.color})` }}>
+                    <Sprite char={hero} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-12 text-center">
+            <h2 className="text-[#a855f7] text-xl font-black tracking-[0.2em] uppercase animate-pulse" 
+              style={{ textShadow: '0 0 15px rgba(168,85,247,0.8)' }}>
+              Merging...
+            </h2>
+            <div className="text-[10px] text-gray-500 font-mono mt-2 tracking-widest">PERFORMING QUANTUM FUSION</div>
+          </div>
+
+          {/* Background Particles */}
+          {fusionParticles.map((pt, i) => (
+            <div 
+              key={i} 
+              className="fusion-particle"
+              style={{ 
+                left: pt.left,
+                top: pt.top,
+                '--tw-translate-x': pt.tx,
+                '--tw-translate-y': pt.ty,
+                animation: `fusion-particle 2s linear infinite`,
+                animationDelay: pt.delay
+              }}
+            ></div>
+          ))}
+          
+          {/* Final Flash Overlay (Triggers near end) */}
+          <div className="absolute inset-0 bg-white opacity-0 pointer-events-none" 
+            style={{ animation: 'flash-white 0.5s ease-out 2s forwards' }}></div>
+        </div>
+      )}
+
+      {/* ═══════ Merge Result Popup ═══════ */}
+      {mergeResult && (
+        <div className="fixed inset-0 z-[260] bg-black/95 flex items-center justify-center p-4 animate-in fade-in duration-500">
+           {/* Retro 3D Container */}
+           <div className="bg-[#161922] w-full max-w-[420px] border-[4px] border-[#000] relative shadow-[10px_10px_0_0_#000] overflow-hidden">
+              {/* Purple Header */}
+              <div className="bg-[#a855f7] border-b-[4px] border-[#000] px-5 py-4 flex items-center gap-4">
+                 <span className="text-white text-2xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">✨</span>
+                 <h3 className="text-white text-base sm:text-lg font-black tracking-[0.1em] uppercase drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)] leading-none pt-1">
+                   {t('heroes.mergeResult') || "MERGE RESULT!"}
+                 </h3>
+              </div>
+              
+              <div className="p-8 sm:p-10 flex flex-col items-center">
+                 {/* Result Aura Background */}
+                 <div className={`absolute w-80 h-80 rounded-full blur-[80px] opacity-20 anim-result-aura pointer-events-none`}
+                   style={{ backgroundColor: mergeResult.color }}></div>
+                 
+                 <div className={`w-32 h-32 flex items-center justify-center border-[4px] border-[#000] relative bg-[#1c1f26] mb-6 shadow-[4px_4px_0_0_#000]`} 
+                   style={{ borderColor: '#000' }}>
+                   
+                   {/* Level Stars Highlight */}
+                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex gap-1 z-20 bg-black/80 px-2 py-0.5 border border-white/10 rounded-full">
+                      {Array.from({ length: mergeResult.level || 1 }).map((_, idx) => (
+                        <span key={idx} className="text-[#f1c40f] text-xs animate-pulse drop-shadow-[0_0_5px_#f1c40f]">★</span>
+                      ))}
+                   </div>
+
+                   {/* Spinning Light Rays for high rarity */}
+                   {(mergeResult.rarity === 'SR' || mergeResult.rarity === 'Epic' || mergeResult.rarity === 'Legendary') && (
+                     <div className="absolute inset-0 opacity-20 anim-gacha-rays pointer-events-none"
+                       style={{ background: `conic-gradient(from 0deg, transparent, ${mergeResult.color}, transparent 10%)` }}></div>
+                   )}
+                   
+                   <div className="w-24 h-24 transform scale-125 anim-float-gentle" style={{ filter: `drop-shadow(0 0 15px ${mergeResult.color})` }}>
+                     <Sprite char={mergeResult} />
+                   </div>
+                 </div>
+
+                 <div className="text-[12px] font-black mb-1 uppercase tracking-[0.2em] drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]" style={{ color: mergeResult.color }}>
+                   {mergeResult.rarity === 'SR' ? 'SUPER RARE' : mergeResult.rarity}
+                 </div>
+                 <div className="text-white text-[18px] font-black mb-8 tracking-wide drop-shadow-md text-center">{mergeResult.name}</div>
+                 
+                 <div className="grid grid-cols-2 gap-x-10 gap-y-3 text-[11px] mb-10 font-mono font-bold w-full max-w-[240px]">
+                   <div className="flex justify-between border-b border-white/5 pb-1"><span className="text-gray-500">HP</span><span className="text-red-400">{mergeResult.hp?.toLocaleString()}</span></div>
+                   <div className="flex justify-between border-b border-white/5 pb-1"><span className="text-gray-500">ATK</span><span className="text-[#fcb95b]">{mergeResult.atk}</span></div>
+                   <div className="flex justify-between border-b border-white/5 pb-1"><span className="text-gray-500">DEF</span><span className="text-blue-400">{mergeResult.def}</span></div>
+                   <div className="flex justify-between border-b border-white/5 pb-1"><span className="text-gray-500">SPD</span><span className="text-emerald-400">{mergeResult.spd}</span></div>
+                 </div>
+
+                 <button 
+                   onClick={() => { setMergeResult(null); setFusionSourceHeroes([]); }} 
+                   className="w-full h-14 bg-[#7c3aed] hover:bg-[#8b5cf6] text-white text-[12px] font-black tracking-[0.2em] uppercase transition-all border-[4px] border-[#a78bfa] border-b-[#5b21b6] border-r-[#5b21b6] active:translate-y-1 active:shadow-none"
+                 >
+                   {t('heroes.collect') || 'COLLECT!'}
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Capacity Full Warning */}
+      {showCapacityWarning && (
+        <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
+          <div className="bg-[var(--color-game-panel)] p-4 pixel-border w-full max-w-xs text-center">
+            <div className="text-3xl mb-3">⚠️</div>
+            <h3 className="text-[#e74c3c] text-sm mb-3">{t('modal.rosterFull')}</h3>
+            <p className="text-gray-300 text-[8px] mb-4">
+              {t('modal.rosterFullMsg', { count: heroCount, max: maxCapacity }).split('\n').map((line, i) => <span key={i}>{line}{i === 0 && <br/>}</span>)}
+            </p>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => { setShowCapacityWarning(false); setActiveTab('heroes'); }}
+                className="pixel-button flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 text-[9px] pixel-border-sm"
+              >
+                {t('modal.goToHeroes')}
+              </button>
+              <button 
+                onClick={() => setShowCapacityWarning(false)}
+                className="pixel-button flex-1 bg-gray-600 text-white py-2 text-[9px] pixel-border-sm"
+              >
+                {t('modal.close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Squad Full Warning */}
+      {showSquadFullWarning && (
+        <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
+          <div className="bg-[var(--color-game-panel)] p-4 pixel-border w-full max-w-xs text-center">
+            <div className="text-3xl mb-3">⚔️</div>
+            <h3 className="text-[#e74c3c] text-sm mb-3">{t('modal.squadFull')}</h3>
+            <p className="text-gray-300 text-[8px] mb-4">
+              {t('modal.squadFullMsg', { max: maxSquadSize }).split('\n').map((line, i) => <span key={i}>{line}{i === 0 && <br/>}</span>)}
+            </p>
+            <button 
+              onClick={() => setShowSquadFullWarning(false)}
+              className="pixel-button bg-gray-600 text-white px-6 py-2 text-[9px] pixel-border-sm"
+            >
+              {t('modal.ok')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Claim Result Modal */}
+      {showClaimResult !== null && (
+        <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
+          <div className="bg-[var(--color-game-panel)] p-4 pixel-border w-full max-w-xs text-center" style={{ borderColor: '#2ecc71' }}>
+            <div className="text-3xl mb-3">💰</div>
+            <h3 className="text-emerald-400 text-sm mb-3">{t('modal.rewardClaimed')}</h3>
+            <div className="bg-black/50 p-3 pixel-border-sm mb-4">
+              <div className="text-[var(--color-pixel)] text-lg font-bold">{showClaimResult.toFixed(4)} TON</div>
+              <div className="text-[7px] text-gray-400 mt-1">{t('modal.addedToBalance')}</div>
+            </div>
+            <button 
+              onClick={() => setShowClaimResult(null)}
+              className="pixel-button bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 text-[9px] pixel-border-sm"
+            >
+              {t('modal.awesome')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Repair Modal Pop-up */}
+      {showRepairModal && (
+        <div className="fixed inset-0 bg-[#000000e6] flex flex-col items-center justify-center z-[100] p-4 backdrop-blur-sm">
+          <div className="bg-[#1c1e29] border border-[#2a2d3b] w-full max-w-sm relative shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden">
+            
+            {/* Header */}
+            <div className="bg-[#3b1f24] px-4 py-3 border-b border-[#4d252a] flex justify-between items-center shadow-md">
+              <h2 className="text-[14px] font-black tracking-wider text-[#ff6b70] flex items-center gap-2 uppercase">
+                <span>⚙️</span> {activeRepairType === 'all' ? t('repair.repairAllTitle') : t('repair.repairSquadTitle')} ({currentRepairBill.damagedCount}/{activeRepairType === 'all' ? heroCount : squadCount})
+              </h2>
+              <button 
+                onClick={() => setShowRepairModal(false)}
+                className="text-gray-300 hover:text-white hover:bg-white/10 w-8 h-8 flex items-center justify-center bg-[#251215] border-none transition-colors text-xs opacity-70 hover:opacity-100"
+              >
+                X
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5">
+              <p className="text-[#e2e8f0] text-[12px] mb-6 text-center leading-relaxed font-sans">
+                {activeRepairType === 'all' 
+                  ? t('repair.allDesc')
+                  : t('repair.squadDesc')}
+              </p>
+
+              {/* Bill Breakdown */}
+              <div className="border border-[#383d52] bg-[#0f111a] p-4 mb-6 shadow-inner relative">
+                <h3 className="text-[10px] text-[#8b91a3] mb-3 border-b border-[#282c3c] pb-2 uppercase tracking-wide">{t('repair.costLabel')}</h3>
+                
+                <ul className="space-y-3 mt-3">
+                  {currentRepairBill.breakdown.map((item, index) => (
+                    <li key={index} className="flex justify-between items-center text-[13px]">
+                      <span className="flex items-center">
+                        <span className="w-2 h-2 rounded-full shadow-[0_0_5px_rgba(255,255,255,0.2)]" style={{ backgroundColor: item.color }}></span>
+                        <span className="font-bold text-white ml-3 capitalize">{t(`common.${item.rarity.toLowerCase()}`)}</span> 
+                        <span className="text-[#5d637a] text-[9px] ml-2 font-mono">x {item.count}</span>
+                      </span>
+                      <span className="text-[#89b4fa] font-mono font-bold tracking-wide">{item.totalGroupCost.toFixed(3)} TON</span>
+                    </li>
+                  ))}
+                  {currentRepairBill.breakdown.length === 0 && (
+                    <li className="text-center text-[#5d637a] italic py-3 text-xs">{t('repair.noRepairs')}</li>
+                  )}
+                </ul>
+
+                {/* Total */}
+                <div className="mt-5 pt-4 border-t border-[#282c3c] flex justify-between items-center">
+                  <span className="text-white font-black text-[15px] uppercase tracking-wide">{t('repair.totalBill')}</span>
+                  <span className="text-[#ff5555] font-black font-mono text-[16px] tracking-wider">{currentRepairBill.totalCost.toFixed(4)} TON</span>
+                </div>
+              </div>
+
+              {/* Confirm Button */}
+              <RepairPaymentButton 
+                repairCost={currentRepairBill.totalCost}
+                userId="player123"
+                disabled={currentRepairBill.damagedCount === 0}
+                onSuccess={() => {
+                  repairHeroes(currentRepairBill.damagedIds);
+                  setShowRepairModal(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Navigation Navbar */}
+      <nav className="theme-nav-bg fixed bottom-0 left-0 right-0 z-50 py-1 max-w-md mx-auto shadow-[0_-5px_15px_rgba(0,0,0,0.5)]">
+        <ul className="flex flex-nowrap overflow-x-auto no-scrollbar items-center h-[72px] px-2 gap-1.5 snap-x">
+          {[
+            { id: 'heroes', icon: IconHeroes, label: t('nav.heroes'), badge: heroCount > 0 ? heroCount : null },
+            { id: 'gacha', icon: IconGacha, label: t('nav.gacha') },
+            { id: 'raid', icon: IconBattle, label: t('nav.battle') },
+            { id: 'rank', icon: IconArena, label: t('nav.pvp') },
+            { id: 'arcade', icon: IconArcade, label: t('nav.arcade') },
+            { id: 'referral', icon: IconReferral, label: t('nav.referral') },
+            { id: 'earn', icon: IconEarn, label: t('nav.withdraw') },
+          ].map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <li key={tab.id} className="min-w-[72px] h-[64px] relative snap-center">
+                <button 
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full h-full flex flex-col items-center justify-center transition-all ${isActive ? 'theme-nav-tab-active' : 'hover:bg-white/5 rounded-lg'}`}
+                >
+                  <span className={`text-2xl mb-1.5 transition-all flex items-center justify-center ${isActive ? 'scale-110 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] z-10' : 'theme-nav-icon-inactive scale-90'}`}>
+                    <tab.icon />
+                  </span>
+                  <span className={`text-[11px] font-black tracking-widest z-10 ${isActive ? 'text-[#ffcc00] drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : 'theme-nav-text-inactive'}`}>
+                    {tab.label}
+                  </span>
+                  {tab.badge && (
+                    <span className={`absolute top-0 right-1 ${showPlusOneBadge && tab.id === 'heroes' ? 'bg-[#2ecc71] animate-bounce scale-110' : 'bg-[#e74c3c]'} text-white text-[7px] font-mono px-1.5 py-0.5 min-w-[16px] text-center rounded-full shadow-[0_2px_4px_rgba(0,0,0,0.5)] border ${showPlusOneBadge && tab.id === 'heroes' ? 'border-white' : 'border-[#ff7b72]'} z-20 transition-all duration-300`}>
+                      {showPlusOneBadge && tab.id === 'heroes' ? '+1' : tab.badge}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      {/* Profile Edit Modal */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsEditingProfile(false)}></div>
+          <div className="relative w-full max-w-xs bg-[#1a1c23] border-2 border-gray-700 p-5 pixel-border shadow-[0_0_30px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200">
+            <h2 className="text-yellow-400 text-sm font-bold mb-4 tracking-widest text-center border-b border-gray-800 pb-2">{t('profile.title')}</h2>
+            
+            <div className="space-y-5">
+              <div>
+                <label className="text-[10px] text-gray-400 uppercase tracking-widest mb-1.5 block">{t('profile.playerName')}</label>
+                <input 
+                  type="text" 
+                  defaultValue={playerName}
+                  id="profile-name-input"
+                  maxLength={15}
+                  className="w-full bg-black/40 border border-gray-700 px-3 py-2 text-white text-xs pixel-border-sm focus:border-yellow-500 outline-none transition-colors"
+                  spellCheck="false"
+                />
+                <p className="text-[6px] text-gray-500 mt-1">{t('profile.nameHint')}</p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6 pt-4 border-t border-gray-800">
+              <button 
+                onClick={() => setIsEditingProfile(false)}
+                className="flex-1 py-2 bg-gray-800 text-gray-400 text-[8px] pixel-border-sm hover:bg-gray-700 transition-colors"
+              >
+                {t('profile.cancel')}
+              </button>
+              <button 
+                onClick={() => {
+                  const input = document.getElementById('profile-name-input');
+                  handleSaveProfile(input.value);
+                }}
+                className="flex-1 py-2 bg-yellow-500 text-black text-[8px] font-bold pixel-border-sm hover:bg-yellow-400 transition-colors"
+              >
+                {t('profile.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[350] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 min-h-screen">
+           {/* Retro 3D Container */}
+           <div className="bg-[#161922] w-full max-w-[420px] border-[4px] border-[#000] relative shadow-[10px_10px_0_0_#000] overflow-hidden">
+              {/* Professional Red Header */}
+              <div className="bg-[#ff3d52] border-b-[4px] border-[#000] px-5 py-4 flex items-center gap-4">
+                 <span className="text-white text-2xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">⚠️</span>
+                 <h3 className="text-white text-base sm:text-lg font-black tracking-[0.1em] uppercase drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)] leading-none pt-1">
+                   {confirmModal.title}
+                 </h3>
+              </div>
+              
+              {/* Content Body */}
+              <div className="p-8 sm:p-10">
+                 <p className="text-white text-[14px] sm:text-[15px] font-bold tracking-wider leading-relaxed mb-10 font-mono">
+                   {confirmModal.message.split('\n').map((line, i) => (
+                     <span key={i} className="block mb-1 last:mb-0 last:text-gray-400 last:text-[11px] last:mt-4">
+                       {line}
+                     </span>
+                   ))}
+                 </p>
+                 
+                 {/* Action Buttons - Beveled Look */}
+                 <div className="flex flex-row gap-5 sm:gap-6 w-full">
+                    <button 
+                      onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+                      className="flex-1 h-14 bg-[#2d3243] hover:bg-[#353b4f] text-[#e2e8f0] text-[12px] font-black tracking-[0.15em] uppercase transition-all border-[4px] border-[#444b61] border-b-[#1e222e] border-r-[#1e222e] active:translate-y-1 active:shadow-none"
+                    >
+                      {t('confirm.abandon') || "ABANDON"}
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (confirmModal.onConfirm) confirmModal.onConfirm();
+                        setConfirmModal({ ...confirmModal, isOpen: false });
+                      }}
+                      className="flex-1 h-14 bg-[#ff3d52] hover:bg-[#ff4d61] text-white text-[12px] font-black tracking-[0.15em] uppercase transition-all border-[4px] border-[#ff6b7a] border-b-[#b02330] border-r-[#b02330] active:translate-y-1 active:shadow-none"
+                    >
+                      {t('confirm.confirm') || "CONFIRM"}
+                    </button>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+      {/* Welcome Bonus Modal */}
+      {showWelcomeModal && welcomeHero && (
+        <div className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-[#1c1e29] border-4 border-[#ffd700] w-full max-w-[320px] relative overflow-hidden shadow-[0_0_50px_rgba(255,215,0,0.4)] flex flex-col items-center p-6">
+            
+            {/* Header */}
+            <h2 className="text-[#ffd700] text-sm font-black tracking-[0.2em] uppercase text-center mb-6 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] px-2">
+              {t('welcome.title')}<br/>
+              <span className="text-[10px] text-yellow-100">{t('welcome.freeHero')}</span>
+            </h2>
+
+            {/* Gacha Icon */}
+            <div className="relative mb-6 group">
+              <div className="absolute inset-0 bg-[#ffd700] rounded-full blur-[20px] opacity-20 group-hover:opacity-40 transition-opacity animate-pulse"></div>
+              <div className="w-24 h-24 relative z-10 drop-shadow-[0_5px_15px_rgba(0,0,0,0.5)] bounce-slow">
+                <img src="/gacha_icon.png" alt="Gacha" className="w-full h-full object-contain image-pixelated" />
+              </div>
+            </div>
+
+            {/* Connection Success Message */}
+            <div className="text-center mb-6 space-y-1">
+              <p className="text-[#2ecc71] text-[10px] font-black uppercase tracking-widest animate-pulse">{t('welcome.connected')}</p>
+              <p className="text-white text-[8px] font-bold opacity-80 uppercase tracking-widest whitespace-nowrap">{t('welcome.received')}</p>
+            </div>
+
+            {/* Hero Result Preview */}
+            <div className={`w-full bg-[#0f111a] border-2 p-3 mb-6 relative overflow-hidden shadow-inner flex gap-3 items-center`} style={{ borderColor: welcomeHero.color }}>
+               {/* Hero Sprite */}
+               <div className={`w-14 h-14 bg-black/40 flex items-center justify-center pixel-border-sm p-1`} style={{ borderColor: welcomeHero.color }}>
+                  <div className="w-10 h-10"><Sprite char={welcomeHero} /></div>
+               </div>
+               {/* Hero Stats */}
+               <div className="flex-1 flex flex-col gap-1">
+                  <div className="text-[7px] font-black uppercase tracking-widest truncate" style={{ color: welcomeHero.color }}>
+                    {welcomeHero.rarity} ROBOT
+                  </div>
+                  <div className="text-white text-[9px] font-bold truncate mb-1">{welcomeHero.name}</div>
+                  <div className="flex gap-3 text-[8px] font-mono">
+                    <span className="text-red-400">❤️ HP:{welcomeHero.hp}</span>
+                    <span className="text-orange-400">⚔️ ATK:{welcomeHero.atk}</span>
+                  </div>
+               </div>
+               {/* Rarity Label Overlay */}
+               <div className="absolute -top-1 -right-4 bg-black/80 px-4 py-1 rotate-[35deg] text-[6px] font-black border-b border-[#ffd700] uppercase" style={{ color: welcomeHero.color }}>
+                  {welcomeHero.rarity}
+               </div>
+            </div>
+
+            {/* Claim Button */}
+            <button 
+              onClick={handleClaimWelcomeGift}
+              className="w-full py-4 bg-[#2563eb] hover:bg-[#3b82f6] text-white text-[12px] font-black tracking-[0.2em] pixel-border border-b-4 border-blue-800 transition-all hover:scale-[1.03] active:scale-[0.97] shadow-lg shadow-blue-500/20"
+            >
+              {t('welcome.claim')}
+            </button>
+
+            {/* Scanline FX */}
+            <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-px animate-scanline"></div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ LONG-PRESS CHARACTER STATS POPUP ═══════ */}
+      {longPressHero && (
+        <div 
+          className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onPointerUp={handlePointerUp}
+          onTouchEnd={handlePointerUp}
+        >
+          <div 
+            className="w-full max-w-[320px] relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.8),0_0_15px_rgba(59,130,246,0.2)] animate-in zoom-in-95 duration-200"
+            style={{ borderColor: longPressHero.color }}
+          >
+            {/* Cyberpunk Neon Border Frame */}
+            <div className="absolute inset-0 border-2 pointer-events-none z-30" style={{ borderColor: longPressHero.color, boxShadow: `inset 0 0 20px ${longPressHero.color}22, 0 0 20px ${longPressHero.color}33` }}></div>
+            
+            {/* Header Bar */}
+            <div className="bg-gradient-to-r from-[#0f111a] via-[#1a1c29] to-[#0f111a] px-4 py-2.5 flex items-center justify-between border-b-2" style={{ borderColor: longPressHero.color + '66' }}>
+              <div className="flex items-center gap-2">
+                {/* Rarity */}
+                <span className="text-[10px] font-black tracking-widest uppercase px-2 py-0.5 border" style={{ color: longPressHero.color, borderColor: longPressHero.color + '55', backgroundColor: longPressHero.color + '15' }}>
+                  {longPressHero.rarity}
+                </span>
+                {/* Grade */}
+                {longPressHero.grade && (
+                  <span className="text-[10px] font-black px-1.5 py-0.5 border" style={{ color: GRADE_COLORS[longPressHero.grade] || '#888', borderColor: (GRADE_COLORS[longPressHero.grade] || '#888') + '55', backgroundColor: (GRADE_COLORS[longPressHero.grade] || '#888') + '15' }}>
+                    GRADE {longPressHero.grade}
+                  </span>
+                )}
+              </div>
+              {/* Element Icon */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-base">{ELEMENT_ICONS[longPressHero.element]}</span>
+                <span className="text-[8px] font-bold tracking-wider" style={{ color: ELEMENT_COLORS[longPressHero.element] }}>{longPressHero.element}</span>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="bg-gradient-to-br from-[#0d0f18] via-[#141622] to-[#0d0f18] p-4 flex gap-4 items-center">
+              {/* Left: Robot Sprite */}
+              <div className="w-24 h-24 flex-shrink-0 flex items-center justify-center pixel-border-sm relative overflow-hidden" style={{ backgroundColor: longPressHero.imageColor, borderColor: longPressHero.color }}>
+                <div className="w-20 h-20">
+                  <Sprite char={longPressHero} />
+                </div>
+                {/* Level Overlay */}
+                <div className="absolute bottom-0 left-0 right-0 bg-black/80 flex flex-col items-center py-0.5">
+                  <div className="flex gap-0.5 mb-0.5">
+                    {Array.from({ length: longPressHero.level || 1 }).map((_, idx) => (
+                      <span key={idx} className="text-[#f1c40f] text-[7px] leading-none">★</span>
+                    ))}
+                  </div>
+                  <span className="text-[7px] text-gray-400 font-bold leading-none">Lv.{longPressHero.level || 1}</span>
+                </div>
+              </div>
+
+              {/* Right: Stats Panel */}
+              <div className="flex-1 flex flex-col gap-1.5">
+                {/* Name */}
+                <div className="text-[9px] font-bold text-white truncate mb-1 tracking-wide">{longPressHero.name}</div>
+                
+                {/* Stats */}
+                <div className="flex items-center gap-2 bg-black/40 px-2 py-1.5 border-l-2 border-red-500">
+                  <span className="text-[10px]">❤️</span>
+                  <span className="text-[7px] text-gray-500 font-bold w-6">HP</span>
+                  <span className="text-[9px] text-white font-black flex-1 text-right">{longPressHero.hp?.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center gap-2 bg-black/40 px-2 py-1.5 border-l-2 border-orange-500">
+                  <span className="text-[10px]">⚔️</span>
+                  <span className="text-[7px] text-gray-500 font-bold w-6">ATK</span>
+                  <span className="text-[9px] text-white font-black flex-1 text-right">{longPressHero.atk}</span>
+                </div>
+                <div className="flex items-center gap-2 bg-black/40 px-2 py-1.5 border-l-2 border-blue-500">
+                  <span className="text-[10px]">🛡️</span>
+                  <span className="text-[7px] text-gray-500 font-bold w-6">DEF</span>
+                  <span className="text-[9px] text-white font-black flex-1 text-right">{longPressHero.def}</span>
+                </div>
+                <div className="flex items-center gap-2 bg-black/40 px-2 py-1.5 border-l-2 border-emerald-500">
+                  <span className="text-[10px]">👟</span>
+                  <span className="text-[7px] text-gray-500 font-bold w-6">SPD</span>
+                  <span className="text-[9px] text-white font-black flex-1 text-right">{longPressHero.spd}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Hint */}
+            <div className="bg-[#0a0b12] text-center py-1.5 border-t border-white/5">
+              <span className="text-[6px] text-gray-600 tracking-widest uppercase">Release to close</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;

@@ -1,0 +1,7 @@
+{
+  "url": "http://localhost:5173",
+  "name": "Pixel War",
+  "iconUrl": "https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest-icon.png",
+  "termsOfUseUrl": "https://ton.org/terms",
+  "privacyPolicyUrl": "https://ton.org/privacy"
+}
