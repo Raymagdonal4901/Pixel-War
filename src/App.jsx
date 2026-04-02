@@ -5,7 +5,7 @@ import { useGacha } from './hooks/useGacha';
 import { useHeroRoster } from './hooks/useHeroRoster';
 import { useSquad } from './hooks/useSquad';
 import { useBossRaid } from './hooks/useBossRaid';
-import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
+import { TonConnectButton, useTonWallet, useTonConnectUI } from '@tonconnect/ui-react';
 import RepairPaymentButton from './components/RepairPaymentButton';
 import PvpArena from './components/PvpArena';
 import ArcadeBetting from './components/ArcadeBetting';
@@ -103,8 +103,14 @@ const Sprite = ({ char, className = "" }) => {
 
 const RARITY_ORDER = { Legendary: 0, Epic: 1, SR: 2, Rare: 3, Common: 4 };
 
+// Blockchain Config
+const RECIPIENT_ADDRESS = "UQBc7XwYlXbqVYO76GOizi3Ji97aFHj98jKfbKUkUWKUgP2p";
+const GACHA_FEE_TON = 1.0;
+const UPGRADE_FEE_TON = 0.5;
+
 function App() {
   const wallet = useTonWallet();
+  const [tonConnectUI] = useTonConnectUI();
   const { t, lang, toggleLang } = useT();
   const [activeTab, setActiveTab] = useState('raid');
   const [raidView, setRaidView] = useState('list');
@@ -161,7 +167,10 @@ function App() {
     setLongPressHero(null);
   };
   
-  // Welcome Gift States
+  // Starter Pack Onboarding States
+  const [starterHeroes, setStarterHeroes] = useState([]);
+  const [showStarterModal, setShowStarterModal] = useState(false);
+  
   const [welcomeHero, setWelcomeHero] = useState(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showPlusOneBadge, setShowPlusOneBadge] = useState(false);
@@ -170,11 +179,15 @@ function App() {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawAddress, setWithdrawAddress] = useState('');
   
-  // Balance State
-  const [balance, setBalance] = useState(() => {
-    const saved = localStorage.getItem('pixel_war_balance');
-    return saved ? parseFloat(saved) : 12.5;
-  });
+  // Real Balance State (from Blockchain)
+  const [tonBalance, setTonBalance] = useState(0);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState(null);
+
+  // Force clean legacy mock balance from localStorage
+  useEffect(() => {
+    localStorage.removeItem('pixel_war_balance');
+  }, []);
 
   // Custom Confirm Modal State
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
@@ -228,6 +241,73 @@ function App() {
     localStorage.setItem('pixel_war_player_name', playerName);
   }, [playerName]);
 
+  // Real-time Balance Fetching
+  const fetchBalance = useMemo(() => async () => {
+    if (!wallet?.account?.address) return;
+    try {
+      const response = await fetch(`https://tonapi.io/v2/accounts/${wallet.account.address}`);
+      const data = await response.json();
+      if (data && data.balance) {
+        setTonBalance(parseFloat(data.balance) / 1000000000);
+      }
+    } catch (error) {
+      console.error("Failed to fetch balance:", error);
+    }
+  }, [wallet?.account?.address]);
+
+  useEffect(() => {
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 20000); // Poll every 20s
+    return () => clearInterval(interval);
+  }, [fetchBalance]);
+
+  // One-time Starter Pack Trigger (Onboarding)
+  useEffect(() => {
+    const hasClaimed = localStorage.getItem('pixel_war_starter_claimed');
+    if (hasClaimed !== 'true' && starterHeroes.length === 0) {
+      // Pick 3 unique random Common robots
+      const commonPool = CHARACTERS.filter(c => c.rarity === 'Common');
+      const chosen = [];
+      const usedIndices = new Set();
+      
+      while(chosen.length < 3 && usedIndices.size < commonPool.length) {
+        const idx = Math.floor(Math.random() * commonPool.length);
+        if (!usedIndices.has(idx)) {
+          usedIndices.add(idx);
+          const base = commonPool[idx];
+          
+          // Generate stats (similar to useGacha but standalone for onboarding)
+          const mults = {
+            hp: (Math.floor(Math.random() * 26) + 90) / 100,
+            atk: (Math.floor(Math.random() * 26) + 90) / 100,
+            def: (Math.floor(Math.random() * 26) + 90) / 100,
+            spd: (Math.floor(Math.random() * 26) + 90) / 100
+          };
+          const avg = (mults.hp + mults.atk + mults.def + mults.spd) / 4;
+          const grade = avg >= 1.10 ? 'S' : avg > 1.0 ? 'A' : avg < 0.95 ? 'C' : 'B';
+          
+          chosen.push({
+            ...base,
+            hp: Math.round(base.hp * mults.hp),
+            maxHp: Math.round(base.hp * mults.hp),
+            atk: Math.round(base.atk * mults.atk),
+            def: Math.round(base.def * mults.def),
+            spd: Math.round(base.spd * mults.spd),
+            grade,
+            hpMult: mults.hp,
+            atkMult: mults.atk,
+            defMult: mults.def,
+            spdMult: mults.spd
+          });
+        }
+      }
+      
+      setTimeout(() => setStarterHeroes(chosen), 0);
+      // Small delay for better UX feel
+      setTimeout(() => setShowStarterModal(true), 1500);
+    }
+  }, [starterHeroes.length]);
+
   // One-time Welcome Gift Trigger
   useEffect(() => {
     const hasClaimed = localStorage.getItem('pixel_war_welcome_claimed');
@@ -243,6 +323,80 @@ function App() {
       }, 0);
     }
   }, [wallet, welcomeHero, pullMultiple]);
+
+  // Generic Blockchain Payment Helper
+  const executeGamePayment = async (amount, label) => {
+    if (!wallet) {
+      alert("Please connect your wallet first!");
+      return false;
+    }
+
+    setIsProcessingPayment(true);
+    setPaymentError(null);
+
+    try {
+      console.log(`Starting ${label || 'Transaction'}...`);
+      const transaction = {
+        validUntil: Math.floor(Date.now() / 1000) + 360,
+        messages: [
+          {
+            address: RECIPIENT_ADDRESS,
+            amount: (amount * 1000000000).toString(), // convert TON to nanoton
+          }
+        ]
+      };
+
+      const result = await tonConnectUI.sendTransaction(transaction);
+      
+      if (result) {
+        // Refresh balance after successful transaction
+        setTimeout(fetchBalance, 2000);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Payment failed:", e);
+      setPaymentError(e.message || "Transaction cancelled or failed.");
+      return false;
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const handleMergeConfirm = async () => {
+    if (mergeSelections.length !== 3) return;
+    
+    // Await Real Blockchain Payment
+    const success = await executeGamePayment(UPGRADE_FEE_TON, "Hero Fusion/Merge");
+    if (!success) return;
+
+    // Start Fusion Animation Sequence
+    const sources = mergeSelections.map(id => userHeroes.find(h => h.instanceId === id));
+    setFusionSourceHeroes(sources);
+    setIsMerging(true);
+    setMergeMode(false);
+    
+    setTimeout(() => {
+      const result = mergeHeroes(mergeSelections);
+      if (result) {
+        setIsMerging(false);
+        setMergeSelections([]);
+        setMergeSourceHero(null);
+        setSelectedHero(null);
+        setMergeResult(result);
+      } else {
+        setIsMerging(false);
+      }
+    }, 2500); // 2.5s Fusion sequence
+  };
+
+  const handleClaimStarterPack = () => {
+    if (starterHeroes.length > 0) {
+      addHeroes(starterHeroes);
+      localStorage.setItem('pixel_war_starter_claimed', 'true');
+      setShowStarterModal(false);
+    }
+  };
 
   const handleClaimWelcomeGift = () => {
     if (welcomeHero) {
@@ -263,10 +417,6 @@ function App() {
       setIsEditingProfile(false);
     }
   };
-
-  useEffect(() => {
-    localStorage.setItem('pixel_war_balance', balance.toString());
-  }, [balance]);
 
   const handleWithdrawAmountChange = (e) => {
     const val = e.target.value;
@@ -340,14 +490,18 @@ function App() {
     });
   }, [filteredHeroes]);
 
-  const handlePull = (count) => {
+  const handlePull = async (count) => {
     if (isPulling) return;
     
-    // Check roster capacity
+    // Check capacity first
     if (!canAdd(count)) {
       setShowCapacityWarning(true);
       return;
     }
+
+    // Await Real Blockchain Payment
+    const success = await executeGamePayment(GACHA_FEE_TON * count, `Gacha x${count}`);
+    if (!success) return;
 
     setIsPulling(true);
     setPullResult(null);
@@ -380,7 +534,8 @@ function App() {
   };
 
   // --- REFERRAL SYSTEM ---
-  const { referralData, claimRewards } = useReferral(balance, setBalance);
+  // useReferral hook - using tonBalance and fetchBalance to sync
+  const { referralData, claimRewards } = useReferral(tonBalance, fetchBalance);
 
   return (
     <div className="flex flex-col min-h-screen max-w-md mx-auto relative overflow-hidden bg-[var(--color-game-bg)] font-pixel text-[10px] sm:text-xs">
@@ -413,7 +568,7 @@ function App() {
               <span className="flex items-center justify-center">
                 <IconTon className="w-2.5 h-2.5" />
               </span>
-              <span className="text-white font-mono tracking-tight font-bold">{balance.toFixed(2)} <span className="text-[5px] text-[#f1c40f]">TON</span></span>
+              <span className="text-white font-mono tracking-tight font-bold">{tonBalance.toFixed(2)} <span className="text-[5px] text-[#f1c40f]">TON</span></span>
             </div>
           </div>
 
@@ -918,6 +1073,13 @@ function App() {
             <div className="relative z-10 w-full flex flex-col items-center flex-1 lg:max-w-md mx-auto">
               {/* Pity Bar at the very TOP edge */}
               <div className="w-full bg-black/60 border-b-2 border-yellow-500/50 py-1.5 px-3 flex justify-center items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 px-3 py-1 bg-black/60 rounded-lg border border-[#facc15]/30 shadow-inner group">
+                  <IconTon className="w-4 h-4 drop-shadow-[0_0_5px_rgba(250,204,21,0.5)] group-hover:scale-110 transition-transform" />
+                  <span className="text-[#facc15] text-[11px] font-black tracking-widest min-w-[30px] text-center">
+                    {tonBalance.toFixed(2)}
+                  </span>
+                  <span className="text-[7px] text-[#facc15]/60 font-bold tracking-tighter uppercase self-end mb-0.5 ml-0.5">TON</span>
+                </div>
                 <span className="text-[var(--color-legendary)] text-[7px] font-pixel tracking-tighter">
                   {t('gacha.pityToLeg')}
                 </span>
@@ -1308,7 +1470,7 @@ function App() {
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between items-end px-1">
                     <span className="text-[10px] text-gray-300 font-bold">{t('withdraw.amountLabel')}</span>
-                    <span className="text-[8px] text-[#f1c40f]">{t('withdraw.max')}: 12.5 TON</span>
+                    <span className="text-[8px] text-[#f1c40f]">{t('withdraw.max')}: {tonBalance.toFixed(2)} TON</span>
                   </div>
                   <div className="flex items-stretch h-14 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
                     <input 
@@ -1318,7 +1480,7 @@ function App() {
                       placeholder="0.00"
                       className="flex-1 bg-transparent border-none text-white px-4 text-right font-mono text-xl outline-none placeholder:text-gray-700"
                     />
-                    <button onClick={() => setWithdrawAmount('12.5')} className="h-full px-4 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
+                    <button onClick={() => setWithdrawAmount(tonBalance.toString())} className="h-full px-4 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
                       <IconTon className="w-11 h-11 drop-shadow-lg hover:scale-110 transition-transform" />
                     </button>
                   </div>
@@ -1410,7 +1572,7 @@ function App() {
 
         {/* REFERRAL TAB */}
         {activeTab === 'referral' && (
-          <ReferralHub referralData={referralData} onClaim={claimRewards} balance={balance} />
+          <ReferralHub referralData={referralData} onClaim={claimRewards} balance={tonBalance} />
         )}
 
       </main>
@@ -1485,9 +1647,9 @@ function App() {
         const dupes = getDuplicates(selectedHero.instanceId);
         const sameRarity = getSameRarityHeroes(selectedHero.rarity, selectedHero.instanceId);
         const isMaxLevel = heroLevel >= 5;
-        const canUpgrade = dupes.length > 0 && !isMaxLevel && balance >= 0.5;
+        const canUpgrade = dupes.length > 0 && !isMaxLevel && tonBalance >= UPGRADE_FEE_TON;
         const isLegendary = selectedHero.rarity === 'Legendary';
-        const canMerge = sameRarity.length >= 2 && !isLegendary && balance >= 0.5;
+        const canMerge = sameRarity.length >= 2 && !isLegendary && tonBalance >= UPGRADE_FEE_TON;
 
         const getSpriteBg = (rarity) => {
           switch(rarity) {
@@ -1561,16 +1723,19 @@ function App() {
                   style={{ backgroundImage: "url('/bar.jpg')", backgroundSize: "300% 100%", backgroundPosition: "0% 0%", imageRendering: "pixelated", border: "none" }} 
                 />
                 <button 
-                  onClick={() => {
+                  onClick={async () => {
                     if (!canUpgrade) return;
                     setConfirmModal({
                       isOpen: true,
                       title: t('heroes.upgradeConfirm'),
-                      message: `${t('heroes.upgradeWarning')}\n\n${t('heroes.cost')}: 0.5 TON`,
-                      onConfirm: () => {
+                      message: `${t('heroes.upgradeWarning')}\n\n${t('heroes.cost')}: ${UPGRADE_FEE_TON} TON`,
+                      onConfirm: async () => {
+                        // Await Real Blockchain Payment
+                        const success = await executeGamePayment(UPGRADE_FEE_TON, "Unit Level Upgrade");
+                        if (!success) return;
+
                         const result = upgradeHero(selectedHero.instanceId, dupes[0].instanceId);
                         if (result) {
-                          setBalance(prev => prev - 0.5);
                           setSelectedHero(result);
                           setUpgradeResult(result);
                           setTimeout(() => setUpgradeResult(null), 2500);
@@ -1602,6 +1767,60 @@ function App() {
           </div>
         );
       })()}
+
+      {/* ═══════ Welcome Starter Pack Modal ═══════ */}
+      {showStarterModal && starterHeroes.length === 3 && (
+        <div className="fixed inset-0 z-[500] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 min-h-screen animate-in fade-in duration-500">
+          <div className="bg-[#12141d] w-full max-w-[480px] border-[4px] border-[#000] relative shadow-[15px_15px_0_0_#000] overflow-hidden">
+            {/* Cyber Header */}
+            <div className="bg-[#facc15] border-b-[4px] border-[#000] px-6 py-5">
+              <h3 className="text-black text-xl font-black tracking-[0.1em] uppercase drop-shadow-sm leading-none pt-1">
+                {t('onboarding.welcomeTitle') || "COMMANDER ASSIGNED!"}
+              </h3>
+              <p className="text-black/80 text-[10px] font-bold mt-2 uppercase tracking-widest">
+                {t('onboarding.welcomeSub') || "YOUR FIRST SQUAD IS READY FOR DEPLOYMENT"}
+              </p>
+            </div>
+
+            <div className="p-6 sm:p-8">
+              <div className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-6 text-center leading-relaxed">
+                {t('onboarding.description') || "TAKE THESE BASIC UNITS TO START YOUR JOURNEY."}
+              </div>
+
+              {/* Heroes Grid */}
+              <div className="grid grid-cols-3 gap-3 mb-8">
+                {starterHeroes.map((hero, idx) => (
+                   <div key={idx} className="flex flex-col items-center group">
+                      <div className="w-full aspect-square bg-[#1c1f26] border-[3px] border-black shadow-[4px_4px_0_0_#000] mb-3 flex items-center justify-center p-2 relative overflow-hidden group-hover:scale-105 transition-transform">
+                        <div className="absolute inset-0 opacity-10 anim-scanline pointer-events-none"></div>
+                        <div className="w-14 h-14 relative z-10 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]">
+                          <Sprite char={hero} />
+                        </div>
+                        <div className="absolute -top-1 -right-1 bg-gray-500 text-white text-[6px] font-black px-1 border-2 border-black">
+                          {hero.rarity}
+                        </div>
+                      </div>
+                      <div className="text-white text-[7px] font-black text-center truncate w-full uppercase opacity-70">
+                        {hero.name}
+                      </div>
+                   </div>
+                ))}
+              </div>
+
+              <button 
+                onClick={handleClaimStarterPack}
+                className="w-full h-16 bg-[#facc15] hover:bg-[#ffe045] text-black text-[13px] font-black tracking-[0.2em] uppercase transition-all border-[4px] border-[#fef08a] border-b-[#854d0e] border-r-[#854d0e] active:translate-y-1 active:shadow-none shadow-[4px_4px_0_0_#000]"
+              >
+                {t('onboarding.claimAction') || "CLAIM STARTER PACK"}
+              </button>
+            </div>
+            
+            {/* Corner Details */}
+            <div className="absolute top-2 right-2 text-[6px] text-black font-black bg-black/10 px-1">PX-01</div>
+            <div className="absolute bottom-2 left-2 text-[6px] text-white/20 font-black">PIXEL_WAR_OS_v1.0.4</div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════ Upgrade Success Modal ═══════ */}
       {upgradeResult && (
@@ -1650,7 +1869,7 @@ function App() {
         const available = getSameRarityHeroes(rarity, mergeSourceHero.instanceId);
         const RARITY_NEXT = { Common: 'Rare', Rare: 'SR', SR: 'Epic', Epic: 'Legendary' };
         const nextRarity = RARITY_NEXT[rarity];
-        const canConfirm = mergeSelections.length === 3 && balance >= 0.5;
+        const canConfirm = mergeSelections.length === 3 && tonBalance >= UPGRADE_FEE_TON;
 
         return (
           <div className="fixed inset-0 z-[100] bg-[#0f111a]/95 backdrop-blur-md flex flex-col p-4 md:p-6 animate-in fade-in duration-200">
@@ -1753,40 +1972,12 @@ function App() {
               {/* Confirm Button Footer */}
               <div className="pt-4 border-t border-white/5 pb-2">
                 <button
-                  onClick={() => {
-                    if (!canConfirm) return;
-                    setConfirmModal({
-                      isOpen: true,
-                      title: t('heroes.mergeConfirm'),
-                      message: `${t('heroes.mergeWarning')}\n\n${t('heroes.cost')}: 0.5 TON`,
-                      onConfirm: () => {
-                        // Start Fusion Animation Sequence
-                        const sources = mergeSelections.map(id => available.find(h => h.instanceId === id) || userHeroes.find(h => h.instanceId === id));
-                        setFusionSourceHeroes(sources);
-                        setIsMerging(true);
-                        setMergeMode(false);
-                        
-                        setTimeout(() => {
-                          const result = mergeHeroes(mergeSelections);
-                          if (result) {
-                            setBalance(prev => prev - 0.5);
-                            setIsMerging(false);
-                            setMergeSelections([]);
-                            setMergeSourceHero(null);
-                            setSelectedHero(null);
-                            setMergeResult(result);
-                          } else {
-                            setIsMerging(false);
-                          }
-                        }, 2500); // 2.5s Fusion sequence
-                      }
-                    });
-                  }}
+                  onClick={handleMergeConfirm}
                   disabled={!canConfirm}
                   className={`w-full h-[52px] sm:h-[60px] relative flex shadow-[0_4px_15px_rgba(0,0,0,0.6)] items-center justify-center text-[11px] sm:text-[13px] font-black transition-all border-[3px] tracking-wide ${canConfirm ? 'bg-[#7c3aed] hover:bg-[#8b5cf6] border-[#a78bfa] text-white animate-pulse' : 'bg-[#212638] border-[#313750] text-gray-500'}`}
                   style={{ textShadow: canConfirm ? '1px 1px 0 rgba(0,0,0,0.8)' : '1px 1px 0 rgba(0,0,0,0.5)' }}
                 >
-                  {mergeSelections.length < 3 ? `Select 3 mechs to merge (${mergeSelections.length}/3)` : `MERGE TO ${nextRarity === 'SR' ? 'SUPER RARE' : nextRarity.toUpperCase()} (0.5 TON)`}
+                  {mergeSelections.length < 3 ? `Select 3 mechs to merge (${mergeSelections.length}/3)` : `MERGE TO ${nextRarity === 'SR' ? 'SUPER RARE' : nextRarity.toUpperCase()} (${UPGRADE_FEE_TON} TON)`}
                 </button>
               </div>
             </div>
@@ -2329,6 +2520,45 @@ function App() {
             <div className="bg-[#0a0b12] text-center py-1.5 border-t border-white/5">
               <span className="text-[6px] text-gray-600 tracking-widest uppercase">Release to close</span>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ═══════ Transaction Processing Overlay ═══════ */}
+      {isProcessingPayment && (
+        <div className="fixed inset-0 z-[1000] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="relative w-24 h-24 mb-8">
+             <div className="absolute inset-0 border-4 border-[#facc15]/20 rounded-full"></div>
+             <div className="absolute inset-0 border-4 border-t-[#facc15] rounded-full animate-spin"></div>
+             <div className="absolute inset-0 flex items-center justify-center">
+                <IconTon className="w-10 h-10 animate-pulse" />
+             </div>
+          </div>
+          
+          <h2 className="text-[#facc15] text-xl font-black tracking-[0.2em] uppercase mb-2 animate-glitch text-center">
+            Transmitting...
+          </h2>
+          <p className="text-white/60 text-[10px] font-bold tracking-widest uppercase text-center max-w-[200px] leading-relaxed">
+            Please confirm the transaction in your wallet app
+          </p>
+          
+          <div className="mt-8 px-4 py-2 border border-white/10 bg-white/5 rounded text-[8px] font-mono text-gray-500 max-w-[240px] truncate">
+            TO: {RECIPIENT_ADDRESS}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ Payment Error Modal ═══════ */}
+      {paymentError && (
+        <div className="fixed inset-0 z-[1001] bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-[#1a0b0b] border-4 border-[#ff4444] p-6 w-full max-w-[320px] relative shadow-[10px_10px_0_0_#4a0000]">
+             <h3 className="text-[#ff4444] text-lg font-black uppercase mb-4 tracking-tighter">Transaction Failed</h3>
+             <p className="text-white/80 text-[10px] font-bold mb-6 leading-relaxed uppercase">{paymentError}</p>
+             <button 
+               onClick={() => setPaymentError(null)}
+               className="w-full bg-[#ff4444] text-white py-3 font-black uppercase text-[11px] tracking-widest hover:bg-[#ff6666] transition-colors"
+             >
+               Dismiss
+             </button>
           </div>
         </div>
       )}
