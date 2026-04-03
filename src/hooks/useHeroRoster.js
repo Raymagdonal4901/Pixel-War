@@ -166,9 +166,7 @@ export function useHeroRoster() {
    * Clear all heroes from the roster.
    */
   const clearRoster = () => {
-    if (window.confirm('Are you sure you want to delete ALL heroes? This cannot be undone.')) {
-      setUserHeroes([]);
-    }
+    setUserHeroes([]);
   };
   /**
    * Mark specific heroes as needing repair.

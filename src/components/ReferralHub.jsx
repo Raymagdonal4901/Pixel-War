@@ -12,7 +12,7 @@ const IconRobotSil = ({ className = "w-4 h-4", color = "currentColor" }) => (
   </svg>
 );
 
-const ReferralHub = ({ referralData, onClaim, balance }) => {
+const ReferralHub = ({ referralData, onClaim, balance, triggerModal, resetReferrals }) => {
   const [copied, setCopied] = useState(false);
   const { t } = useT();
 
@@ -35,7 +35,7 @@ const ReferralHub = ({ referralData, onClaim, balance }) => {
   return (
     <div className="flex flex-col flex-1 p-4 animate-in fade-in relative min-h-full no-scrollbar overflow-y-auto">
       {/* ─── HEADER ─── */}
-      <div className="text-center mb-6 pt-2">
+      <div className="text-center mb-6 pt-2 relative">
         <h2 className="text-[18px] font-black tracking-[0.2em] text-[#4ade80] drop-shadow-[0_0_10px_rgba(74,222,128,0.5)] uppercase animate-pulse">
            {t('referral.title')}
         </h2>
@@ -145,13 +145,36 @@ const ReferralHub = ({ referralData, onClaim, balance }) => {
               onClick={() => {
                 const claimed = onClaim();
                 if (claimed > 0) {
-                  alert(`Claimed ${claimed.toFixed(4)} TON!`);
+                  triggerModal({
+                    type: 'alert',
+                    title: t('modal.success'),
+                    message: `Claimed ${claimed.toFixed(4)} TON!`,
+                    confirmText: t('modal.understood')
+                  });
                 }
               }}
               className="w-full h-14 bg-[#10b981] hover:bg-[#059669] text-black font-black tracking-[0.3em] text-[15px] rounded-xl transition-all shadow-[0_10px_20px_rgba(34,197,94,0.3)] active:translate-y-1 active:shadow-none disabled:opacity-30 disabled:grayscale uppercase border-b-4 border-green-900"
             >
               {t('referral.claim')}
             </button>
+
+            {/* Reset Stats (Dev Only/Server Push) */}
+            <div className="mt-2 flex justify-center">
+              <button 
+                onClick={() => {
+                  triggerModal({
+                    type: 'confirm',
+                    title: '⚠️ RESET STATS',
+                    message: 'Are you sure you want to reset all referral stats to 0?',
+                    confirmText: 'RESET',
+                    onConfirm: resetReferrals
+                  });
+                }}
+                className="text-[7px] text-gray-500 hover:text-red-400 font-bold tracking-widest uppercase underline underline-offset-4"
+              >
+                Reset Statistics
+              </button>
+            </div>
           </div>
         </div>
       </section>

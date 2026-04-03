@@ -123,7 +123,7 @@ function App() {
   const [showCapacityWarning, setShowCapacityWarning] = useState(false);
   const [gachaAnim, setGachaAnim] = useState(null); // 'falling', 'shaking', 'burst', 'revealed'
   const { pullMultiple, legendaryPity, totalPulls } = useGacha();
-  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, clearRoster, rarityCounts, damageHeroes, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
+  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, damageHeroes, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
   const [showRepairModal, setShowRepairModal] = useState(false);
   const [activeRepairType, setActiveRepairType] = useState('squad'); // 'squad' or 'all'
   const [selectedBossIndex, setSelectedBossIndex] = useState(0);
@@ -181,6 +181,10 @@ function App() {
   
   // Real Balance State (from Blockchain)
   const [tonBalance, setTonBalance] = useState(0);
+  const [gameBalance, setGameBalance] = useState(() => {
+    const saved = localStorage.getItem('pixel_war_game_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
 
@@ -189,8 +193,33 @@ function App() {
     localStorage.removeItem('pixel_war_balance');
   }, []);
 
-  // Custom Confirm Modal State
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+  // Persist gameBalance
+  useEffect(() => {
+    localStorage.setItem('pixel_war_game_balance', gameBalance.toString());
+  }, [gameBalance]);
+
+  // Custom Themed Modal System
+  const [modalConfig, setModalConfig] = useState({ 
+    isOpen: false, 
+    type: 'alert', // 'alert' | 'confirm'
+    title: '', 
+    message: '', 
+    confirmText: '', 
+    cancelText: '',
+    onConfirm: null 
+  });
+
+  const triggerModal = (config) => {
+    setModalConfig({
+      isOpen: true,
+      type: config.type || 'alert',
+      title: config.title || '',
+      message: config.message || '',
+      confirmText: config.confirmText || '',
+      cancelText: config.cancelText || '',
+      onConfirm: config.onConfirm || null
+    });
+  };
 
   // Profile State
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('pixel_war_player_name') || 'Player1');
@@ -327,7 +356,12 @@ function App() {
   // Generic Blockchain Payment Helper
   const executeGamePayment = async (amount, label) => {
     if (!wallet) {
-      alert("Please connect your wallet first!");
+      triggerModal({
+        type: 'alert',
+        title: t('modal.warning'),
+        message: "Please connect your wallet first!",
+        confirmText: t('modal.understood')
+      });
       return false;
     }
 
@@ -416,6 +450,28 @@ function App() {
       setPlayerName(newName.trim());
       setIsEditingProfile(false);
     }
+  };
+
+  const resetAllData = () => {
+    triggerModal({
+      type: 'confirm',
+      title: '⚠️ RESET ALL DATA',
+      message: 'This will wipe all your progress, heroes, and balance. This cannot be undone!\n\nAre you sure you want to clear everything for the server push?',
+      confirmText: 'RESET EVERYTHING',
+      onConfirm: () => {
+        // Clear LocalStorage
+        localStorage.clear();
+        
+        // Reset States
+        setGameBalance(0);
+        setPlayerName('Player1');
+        setPvpStats({ count: 0, lastResetDayId: Math.floor(Date.now() / (2 * 3600 * 1000)) });
+        resetReferrals();
+        
+        // Reload page to ensure all hooks/states are fresh
+        window.location.reload();
+      }
+    });
   };
 
   const handleWithdrawAmountChange = (e) => {
@@ -535,7 +591,8 @@ function App() {
 
   // --- REFERRAL SYSTEM ---
   // useReferral hook - using tonBalance and fetchBalance to sync
-  const { referralData, claimRewards } = useReferral(tonBalance, fetchBalance);
+  // useReferral hook - correctly bound to in-game gameBalance
+  const { referralData, claimRewards, resetReferrals } = useReferral(gameBalance, setGameBalance);
 
   return (
     <div className="flex flex-col min-h-screen max-w-md mx-auto relative overflow-hidden bg-[var(--color-game-bg)] font-pixel text-[10px] sm:text-xs">
@@ -562,13 +619,21 @@ function App() {
               <TonConnectButton />
             </div>
             
-            {/* 1. Total Balance (Wallet Background) */}
-            <div className="flex items-center gap-1 bg-black/40 border border-[#3b4252] px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+            {/* 1. Real Wallet Balance (TON) */}
+            <div className="flex items-center gap-1 bg-black/40 border border-[#3b4252] px-1 py-0.5 min-w-[55px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
               <span className="flex items-center justify-center">
-                <IconTon className="w-2.5 h-2.5" />
+                <IconTon className="w-2 h-2" />
               </span>
-              <span className="text-white font-mono tracking-tight font-bold">{tonBalance.toFixed(2)} <span className="text-[5px] text-[#f1c40f]">TON</span></span>
+              <span className="text-white font-mono tracking-tight font-bold">{tonBalance.toFixed(2)}</span>
+            </div>
+
+            {/* 2. In-Game Wallet Balance (DIAMONDS/TON) */}
+            <div className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-400/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+              <span className="flex items-center justify-center">
+                <span className="text-[8px] drop-shadow-[0_0_2px_#2ecc71]">💰</span>
+              </span>
+              <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)} <span className="text-[5px]">TON</span></span>
             </div>
           </div>
 
@@ -894,8 +959,11 @@ function App() {
                     <button 
                       onClick={() => {
                         const claimed = claimReward();
-                        if (claimed > 0) damageHeroes(deployedHeroes.map(h => h.instanceId));
-                        setShowClaimResult(claimed);
+                        if (claimed > 0) {
+                          setGameBalance(prev => prev + claimed);
+                          damageHeroes(deployedHeroes.map(h => h.instanceId));
+                          setShowClaimResult(claimed);
+                        }
                       }}
                       className={`pixel-button flex-1 py-3 text-sm pixel-border text-white ${progress.isComplete ? 'bg-gradient-to-r from-emerald-600 to-emerald-800 fight-button-glow' : 'bg-emerald-700'}`}
                       style={{ borderColor: '#2ecc71' }}
@@ -904,8 +972,8 @@ function App() {
                     </button>
                     <button 
                       onClick={() => {
-                        setConfirmModal({
-                          isOpen: true,
+                        triggerModal({
+                          type: 'confirm',
                           title: t('confirm.cancelMission'),
                           message: t('confirm.cancelMsg'),
                           onConfirm: () => cancelRaid()
@@ -1073,13 +1141,6 @@ function App() {
             <div className="relative z-10 w-full flex flex-col items-center flex-1 lg:max-w-md mx-auto">
               {/* Pity Bar at the very TOP edge */}
               <div className="w-full bg-black/60 border-b-2 border-yellow-500/50 py-1.5 px-3 flex justify-center items-center gap-2 mb-2">
-                <div className="flex items-center gap-2 px-3 py-1 bg-black/60 rounded-lg border border-[#facc15]/30 shadow-inner group">
-                  <IconTon className="w-4 h-4 drop-shadow-[0_0_5px_rgba(250,204,21,0.5)] group-hover:scale-110 transition-transform" />
-                  <span className="text-[#facc15] text-[11px] font-black tracking-widest min-w-[30px] text-center">
-                    {tonBalance.toFixed(2)}
-                  </span>
-                  <span className="text-[7px] text-[#facc15]/60 font-bold tracking-tighter uppercase self-end mb-0.5 ml-0.5">TON</span>
-                </div>
                 <span className="text-[var(--color-legendary)] text-[7px] font-pixel tracking-tighter">
                   {t('gacha.pityToLeg')}
                 </span>
@@ -1277,15 +1338,12 @@ function App() {
               {/* Header with capacity */}
             <div className="flex items-center justify-between mb-3">
               <div className="flex flex-col gap-0.5">
-                <h2 className="text-sm text-[var(--color-pixel)] drop-shadow-md">{t('heroes.title')}</h2>
+                <h2 className="text-sm text-[var(--color-pixel)] drop-shadow-md flex items-center gap-2">
+                  <img src="/Robot/epic_16.png" alt="Hero Icon" className="w-5 h-5 image-pixelated drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]" />
+                  {t('heroes.title')}
+                </h2>
                 {heroCount > 0 && (
                   <div className="flex gap-2">
-                    <button 
-                      onClick={clearRoster}
-                      className="text-[6px] text-red-500 hover:text-red-400 bg-red-500/10 px-1 py-0.5 border border-red-500/30 rounded-sm w-fit transition-colors"
-                    >
-                      {t('heroes.resetData')}
-                    </button>
                     {repairAllBill.damagedCount > 0 && (
                       <button 
                         onClick={() => { setActiveRepairType('all'); setShowRepairModal(true); }}
@@ -1470,7 +1528,7 @@ function App() {
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between items-end px-1">
                     <span className="text-[10px] text-gray-300 font-bold">{t('withdraw.amountLabel')}</span>
-                    <span className="text-[8px] text-[#f1c40f]">{t('withdraw.max')}: {tonBalance.toFixed(2)} TON</span>
+                    <span className="text-[8px] text-[#2ecc71]">{t('withdraw.max')}: {gameBalance.toFixed(2)} TON</span>
                   </div>
                   <div className="flex items-stretch h-14 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
                     <input 
@@ -1480,8 +1538,8 @@ function App() {
                       placeholder="0.00"
                       className="flex-1 bg-transparent border-none text-white px-4 text-right font-mono text-xl outline-none placeholder:text-gray-700"
                     />
-                    <button onClick={() => setWithdrawAmount(tonBalance.toString())} className="h-full px-4 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
-                      <IconTon className="w-11 h-11 drop-shadow-lg hover:scale-110 transition-transform" />
+                    <button onClick={() => setWithdrawAmount(gameBalance.toString())} className="h-full px-4 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
+                      <span className="text-2xl drop-shadow-[0_0_5px_#2ecc71]">💰</span>
                     </button>
                   </div>
                 </div>
@@ -1572,7 +1630,13 @@ function App() {
 
         {/* REFERRAL TAB */}
         {activeTab === 'referral' && (
-          <ReferralHub referralData={referralData} onClaim={claimRewards} balance={tonBalance} />
+          <ReferralHub 
+            referralData={referralData} 
+            onClaim={claimRewards} 
+            balance={tonBalance} 
+            triggerModal={triggerModal}
+            resetReferrals={resetReferrals}
+          />
         )}
 
       </main>
@@ -1724,9 +1788,8 @@ function App() {
                 />
                 <button 
                   onClick={async () => {
-                    if (!canUpgrade) return;
-                    setConfirmModal({
-                      isOpen: true,
+                    triggerModal({
+                      type: 'confirm',
                       title: t('heroes.upgradeConfirm'),
                       message: `${t('heroes.upgradeWarning')}\n\n${t('heroes.cost')}: ${UPGRADE_FEE_TON} TON`,
                       onConfirm: async () => {
@@ -2236,6 +2299,7 @@ function App() {
               <RepairPaymentButton 
                 repairCost={currentRepairBill.totalCost}
                 userId="player123"
+                triggerModal={triggerModal}
                 disabled={currentRepairBill.damagedCount === 0}
                 onSuccess={() => {
                   repairHeroes(currentRepairBill.damagedIds);
@@ -2323,53 +2387,82 @@ function App() {
                 {t('profile.save')}
               </button>
             </div>
+
+            {/* Reset Data Button (for Dev/Server Push) */}
+            <div className="mt-4 border-t border-red-900/30 pt-4">
+              <button 
+                onClick={resetAllData}
+                className="w-full py-2 bg-red-900/20 border border-red-500/30 text-red-500 text-[7px] font-bold tracking-widest hover:bg-red-500 hover:text-white transition-all pixel-border-sm"
+              >
+                ☢️ RESET ACCOUNT DATA
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Confirmation Modal */}
-      {confirmModal.isOpen && (
-        <div className="fixed inset-0 z-[350] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 min-h-screen">
-           {/* Retro 3D Container */}
-           <div className="bg-[#161922] w-full max-w-[420px] border-[4px] border-[#000] relative shadow-[10px_10px_0_0_#000] overflow-hidden">
-              {/* Professional Red Header */}
-              <div className="bg-[#ff3d52] border-b-[4px] border-[#000] px-5 py-4 flex items-center gap-4">
-                 <span className="text-white text-2xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)]">⚠️</span>
-                 <h3 className="text-white text-base sm:text-lg font-black tracking-[0.1em] uppercase drop-shadow-[0_2px_2px_rgba(0,0,0,0.5)] leading-none pt-1">
-                   {confirmModal.title}
-                 </h3>
+      {/* Themed Game Modal System */}
+      {modalConfig.isOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          {/* Main Container with Retro 3D Shadow */}
+          <div 
+            className="w-full max-w-[380px] bg-[#1a1c23] border-[3px] border-[#000] relative shadow-[8px_8px_0_0_rgba(0,0,0,0.8)] overflow-hidden animate-zoom-in"
+          >
+            {/* Header with Dynamic Theme */}
+            <div 
+              className={`px-4 py-3 border-b-[3px] border-[#000] flex items-center gap-3 ${
+                modalConfig.type === 'confirm' ? 'bg-[#e74c3c]' : 'bg-[#f39c12]'
+              }`}
+            >
+              <span className="text-xl drop-shadow-md">
+                {modalConfig.type === 'confirm' ? '⚠️' : '🔔'}
+              </span>
+              <h3 className="text-white text-[13px] font-black tracking-widest uppercase truncate pt-0.5 drop-shadow-md">
+                {modalConfig.title || (modalConfig.type === 'confirm' ? t('modal.warning') : t('modal.info'))}
+              </h3>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 sm:p-8 bg-gradient-to-b from-[#1a1c23] to-[#12141a]">
+              <p className="text-white text-[12px] sm:text-[13px] leading-relaxed font-bold tracking-wide mb-8">
+                {modalConfig.message.split('\n').map((line, i) => (
+                  <span key={i} className="block mb-2 last:mb-0">
+                    {line}
+                  </span>
+                ))}
+              </p>
+
+              {/* Action Buttons */}
+              <div className="flex gap-4">
+                {modalConfig.type === 'confirm' && (
+                  <button
+                    onClick={() => setModalConfig({ ...modalConfig, isOpen: false })}
+                    className="flex-1 py-3 bg-[#34495e] hover:bg-[#2c3e50] text-gray-300 text-[10px] font-black tracking-widest uppercase pixel-border-sm transition-all active:scale-95"
+                  >
+                    {modalConfig.cancelText || t('modal.cancel')}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (modalConfig.onConfirm) modalConfig.onConfirm();
+                    setModalConfig({ ...modalConfig, isOpen: false });
+                  }}
+                  className={`flex-1 py-3 text-white text-[10px] font-black tracking-widest uppercase pixel-border-sm transition-all animate-pulse-slow active:scale-95 ${
+                    modalConfig.type === 'confirm' ? 'bg-[#e74c3c] hover:bg-[#c0392b] shadow-[0_0_15px_rgba(231,76,60,0.3)]' : 'bg-[#f1c40f] hover:bg-[#d4ac0d] !text-black shadow-[0_0_15px_rgba(241,196,15,0.3)]'
+                  }`}
+                >
+                  {modalConfig.confirmText || (modalConfig.type === 'confirm' ? t('confirm.confirm') : t('modal.ok'))}
+                </button>
               </div>
-              
-              {/* Content Body */}
-              <div className="p-8 sm:p-10">
-                 <p className="text-white text-[14px] sm:text-[15px] font-bold tracking-wider leading-relaxed mb-10 font-mono">
-                   {confirmModal.message.split('\n').map((line, i) => (
-                     <span key={i} className="block mb-1 last:mb-0 last:text-gray-400 last:text-[11px] last:mt-4">
-                       {line}
-                     </span>
-                   ))}
-                 </p>
-                 
-                 {/* Action Buttons - Beveled Look */}
-                 <div className="flex flex-row gap-5 sm:gap-6 w-full">
-                    <button 
-                      onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}
-                      className="flex-1 h-14 bg-[#2d3243] hover:bg-[#353b4f] text-[#e2e8f0] text-[12px] font-black tracking-[0.15em] uppercase transition-all border-[4px] border-[#444b61] border-b-[#1e222e] border-r-[#1e222e] active:translate-y-1 active:shadow-none"
-                    >
-                      {t('confirm.abandon') || "ABANDON"}
-                    </button>
-                    <button 
-                      onClick={() => {
-                        if (confirmModal.onConfirm) confirmModal.onConfirm();
-                        setConfirmModal({ ...confirmModal, isOpen: false });
-                      }}
-                      className="flex-1 h-14 bg-[#ff3d52] hover:bg-[#ff4d61] text-white text-[12px] font-black tracking-[0.15em] uppercase transition-all border-[4px] border-[#ff6b7a] border-b-[#b02330] border-r-[#b02330] active:translate-y-1 active:shadow-none"
-                    >
-                      {t('confirm.confirm') || "CONFIRM"}
-                    </button>
-                 </div>
-              </div>
-           </div>
+            </div>
+
+            {/* Bottom Glow */}
+            <div 
+              className={`h-1 w-full opacity-50 ${
+                modalConfig.type === 'confirm' ? 'bg-[#e74c3c]' : 'bg-[#f1c40f]'
+              }`}
+            ></div>
+          </div>
         </div>
       )}
       {/* Welcome Bonus Modal */}

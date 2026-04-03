@@ -70,8 +70,7 @@ const translations = {
   'rates.avgAtk': { th: '* ATK เฉลี่ยต่อครั้ง ≈ 22.5', en: '* Average ATK per pull ≈ 22.5' },
 
   // ==================== HEROES TAB ====================
-  'heroes.title': { th: '🛡️ ฮีโร่', en: '🛡️ HEROES' },
-  'heroes.resetData': { th: 'รีเซ็ตข้อมูล', en: 'RESET DATA' },
+  'heroes.title': { th: 'ฮีโร่', en: 'HEROES' },
   'heroes.repairAll': { th: '🔧 ซ่อมทั้งหมด', en: '🔧 REPAIR ALL' },
   'heroes.noHeroes': { th: 'ยังไม่มีฮีโร่!', en: 'No heroes yet!' },
   'heroes.noRarityHeroes': { th: 'ไม่มีฮีโร่ {rarity}', en: 'No {rarity} heroes' },
@@ -161,6 +160,14 @@ const translations = {
   'welcome.received': { th: 'คุณได้รับ: 1 กาชาฮีโร่ฟรี!', en: 'You received: 1 Free Hero Gacha!' },
   'welcome.claim': { th: 'รับเลย!', en: 'CLAIM NOW!' },
 
+  // --- Modal General ---
+  'modal.understood': { th: 'รับทราบ', en: 'UNDERSTOOD' },
+  'modal.cancel': { th: 'ยกเลิก', en: 'CANCEL' },
+  'modal.error': { th: 'เกิดข้อผิดพลาด', en: 'ERROR' },
+  'modal.warning': { th: 'คำเตือน', en: 'WARNING' },
+  'modal.info': { th: 'ข้อมูล', en: 'INFORMATION' },
+  'modal.success': { th: 'สำเร็จ!', en: 'SUCCESS!' },
+
   // ==================== PVP ARENA ====================
   'pvp.title': { th: 'PVP อารีน่า', en: 'PVP ARENA' },
   'pvp.quota': { th: 'โควตาการประลอง', en: 'Battle Quota' },
@@ -217,7 +224,7 @@ const translations = {
   // PVP Rules content
   'pvp.rule1Title': { th: 'เงื่อนไขการเข้าร่วม', en: 'Entry Conditions' },
   'pvp.rule1Desc1v1': { th: 'ค่าธรรมเนียมเข้าแข่งขัน 1 TON ต่อครั้ง จับคู่กับหุ่นยนต์ที่มีระดับ (Rarity) เดียวกันเท่านั้น', en: 'Entry fee 1 TON per match. Matched with robots of the same Rarity only' },
-  'pvp.rule1Desc3v3': { th: 'ค่าธรรมเนียมเข้าประลอง 2 TON ต่อคน. แมตช์จะเริ่มเมื่อสุ่มผู้เล่นครบ 6 คน (แบ่งทีมละ 3 คน) ใช้ฮีโร่ที่เลือกไว้เป็นตัวแทน. คืนเงิน 2 TON เต็มจำนวนหากผู้เล่นไม่ครบใน 60 วินาที', en: 'Entry fee 2 TON per person. Match starts when 6 players found (3v3). Uses selected hero as representative. Full 2 TON refund if not enough players in 60 seconds' },
+  'pvp.rule1Desc3v3': { th: 'สู้แบบ 3v3 | ค่าเข้า 3 TON | ชนะรับ 5.5 TON | หักค่าธรรมเนียม 0.5 TON', en: '3v3 Battle | Entry 3 TON | Winner 5.5 TON | Dev Fee 0.5 TON' },
   'pvp.rule2Title1v1': { th: 'ระบบต่อสู้', en: 'Battle System' },
   'pvp.rule2Title3v3': { th: 'ระบบการต่อสู้', en: 'Battle System' },
   'pvp.rule2Desc1v1': { th: 'สู้แบบ Turn-based โดยสถิติ HP/ATK จะส่งผลต่อโอกาสชนะ หุ่นยนต์ที่ HP หมดก่อนจะเป็นผู้แพ้', en: 'Turn-based combat where HP/ATK stats affect win chances. The robot whose HP reaches 0 first loses' },
@@ -225,7 +232,7 @@ const translations = {
   'pvp.rule3Title1v1': { th: 'รางวัลตอบแทน', en: 'Rewards' },
   'pvp.rule3Title3v3': { th: 'การแบ่งรางวัลและค่าธรรมเนียม', en: 'Reward Distribution & Fees' },
   'pvp.rule3Desc1v1': { th: 'ผู้ชนะจะได้รับรางวัล 1.8 TON ทันที (หักค่าธรรมเนียม Dev Fee 10% แล้ว)', en: 'Winner receives 1.8 TON instantly (10% Dev Fee already deducted)' },
-  'pvp.rule3Desc3v3': { th: 'เงินกองกลาง 12 TON. ทีมชนะรับรางวัลรวม 10 TON (แบ่งสมาชิกคนละ ~3.33 TON). ทีมแพ้เสียเงินเดิมพัน. หักค่าบำรุงรักษาระบบ (Dev Fee) 2 TON', en: 'Prize pool 12 TON. Winning team receives 10 TON (~3.33 TON each). Losing team forfeits entry. Dev Fee: 2 TON' },
+  'pvp.rule3Desc3v3': { th: 'กองกลางรวม 6 TON | ผู้ชนะรับ 5.5 TON | ค่าธรรมเนียม Dev Fee 0.5 TON', en: 'Total Pool 6 TON | Winner receives 5.5 TON | Dev Fee 0.5 TON' },
   'pvp.rule4Title': { th: 'ข้อควรระวัง', en: 'Caution' },
   'pvp.rule4Desc1v1': { th: 'หากระบบไม่พบคู่ต่อสู้ภายใน 60 วินาที ระบบจะทำการคืนเงินเข้ากระเป๋าของคุณเต็มจำนวน', en: 'If no opponent is found within 60 seconds, a full refund will be issued to your wallet' },
   'pvp.rule4Desc3v3': { th: 'จำเป็นต้องมี NanoTON ในกระเป๋าเป็นค่าแก๊ส. กรุณาอย่าปิดแอปหรือกดออกขณะ Searching เพื่อป้องกันข้อผิดพลาดในการคืนเงิน', en: 'Must have NanoTON in wallet for gas. Do not close or exit the app while Searching to prevent refund errors' },

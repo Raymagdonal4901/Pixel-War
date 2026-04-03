@@ -9,6 +9,45 @@ const ELEMENT_ICONS = {
   'BIO': '🌿'
 };
 
+// ═══════════════════════════════════════════════════════════
+// PVP Combat Stats — Balanced for M=25, ~5 turn battles
+// HP / (ATK × 25) ≈ 4.8 turns (matching user spec example)
+// Hero grade multipliers (hpMult, atkMult) still apply on top
+// ═══════════════════════════════════════════════════════════
+const PVP_COMBAT_STATS = {
+  Common:    { hp: 3000,  atk: 25 },
+  Rare:      { hp: 5500,  atk: 45 },
+  SR:        { hp: 8000,  atk: 65 },
+  Epic:      { hp: 11000, atk: 90 },
+  Legendary: { hp: 16000, atk: 130 },
+};
+
+/** Convert a hero to PvP-balanced combat stats while preserving grade advantage */
+function toPvpCombatHero(hero, battleId) {
+  const base = PVP_COMBAT_STATS[hero.rarity] || PVP_COMBAT_STATS.Common;
+  const hpMult = hero.hpMult ?? 1.0;
+  const atkMult = hero.atkMult ?? 1.0;
+  const defMult = hero.defMult ?? 1.0;
+  const spdMult = hero.spdMult ?? 1.0;
+  
+  const combatHp = Math.round(base.hp * hpMult);
+  const combatAtk = Math.round(base.atk * atkMult);
+  const combatDef = Math.round((hero.def || 10) * defMult);
+  const combatSpd = Math.round((hero.spd || 10) * spdMult);
+
+  return {
+    ...hero,
+    battleId,
+    hp: combatHp,
+    currentHp: combatHp,
+    maxHp: combatHp,
+    atk: combatAtk,
+    def: combatDef,
+    spd: combatSpd,
+    turnCount: 0,
+  };
+}
+
 function getElementalMultiplier(attackerElement, defenderElement) {
   if (attackerElement === 'PLASMA') {
     if (defenderElement === 'BIO') return 1.25;
@@ -60,7 +99,7 @@ const HeroSprite = ({ char, className = "" }) => {
 
 const WatermarkBg = () => (
   <div 
-    className="absolute inset-x-0 inset-y-0 z-0 opacity-[0.15] pointer-events-none bg-center bg-cover bg-no-repeat grayscale-[0.2]"
+    className="absolute inset-x-0 inset-y-0 z-0 opacity-[0.08] pointer-events-none bg-center bg-cover bg-no-repeat grayscale-[0.4]"
     style={{ backgroundImage: "url('/@fs/C:/Users/rayma/.gemini/antigravity/brain/650491d8-0df2-4a6c-85d2-2faa1d4043af/media__1774973956639.jpg')" }}
   ></div>
 );
@@ -118,29 +157,24 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
     if (mode === '1v1') setSelected1v1(selectedIndices);
     else setSelected3v3(selectedIndices);
 
+    // Convert player heroes to PVP-balanced combat stats
     const myTeam = selectedIndices.map((idx, i) => {
       const hero = userHeroes[idx];
-      return { 
-        ...hero, 
-        battleId: `p${i+1}`, 
-        currentHp: hero.hp, 
-        maxHp: hero.hp, 
-        turnCount: 0
-      };
+      return toPvpCombatHero(hero, `p${i+1}`);
     });
 
-    // Generate Opponents based on Rarity Matching
+    // Generate Opponents based on Rarity Matching (also PVP-balanced)
     const opponents = myTeam.map((h, i) => {
       const matchingRarity = CHARACTERS.filter(c => c.rarity === h.rarity);
       const enemy = matchingRarity[Math.floor(Math.random() * matchingRarity.length)];
-      return { ...enemy, battleId: `e${i+1}`, currentHp: enemy.hp, maxHp: enemy.hp, turnCount: 0 };
+      return toPvpCombatHero(enemy, `e${i+1}`);
     });
 
     setPlayerTeam(myTeam);
     setEnemyTeam(opponents);
     setIsPicking(false);
     battleStateRef.current = { player: myTeam, enemy: opponents, step: 1 };
-    runningRef.current = false; // Reset loop guard
+    runningRef.current = false;
     setView('matchmaking');
   };
 
@@ -234,7 +268,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
         attackerId: attacker.battleId,
         targetId: target.battleId,
         type: attacker.attackType === 'melee' ? 'melee-dash' : 'projectile-fire',
-        effect: attacker.attackType === 'melee' ? 'slash' : 'explosion',
+        effect: 'explosion', // Always explosion as requested
         isPlayerTurn,
         isHit: true,
         isSimultaneous: false
@@ -339,7 +373,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
               <PvpModeCard 
                 title="3 VS 3"
                 heroes={selected3v3.map(i => userHeroes[i]).filter(Boolean)}
-                reward="3.33" 
+                reward="5.5" 
                 fee={PVP_MODES.TEAM_3V3.fee}
                 onAction={() => startMatchmaking('3v3')}
                 isReady={selected3v3.length === 3}
@@ -666,8 +700,11 @@ const BattleCharacter = ({ hero, isLeft, animState }) => {
   return (
     <div className="relative flex flex-col items-center">
       {!isDead && (
-        <div className="w-12 h-1 bg-red-900 mb-1 border border-black overflow-hidden z-20">
-          <div className="h-full bg-green-500 transition-all duration-300" style={{width: `${(hero.currentHp/hero.maxHp)*100}%`}}></div>
+        <div className="w-12 h-2.5 bg-red-900 mb-1 border border-black overflow-hidden z-20 relative">
+          <div className="h-full bg-green-500 transition-all duration-300 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)]" style={{width: `${(hero.currentHp/hero.maxHp)*100}%`}}></div>
+          <div className="absolute inset-0 flex items-center justify-center text-[5px] font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] px-0.5 whitespace-nowrap">
+            {Math.ceil(hero.currentHp).toLocaleString()} / {hero.maxHp.toLocaleString()}
+          </div>
         </div>
       )}
       
@@ -682,20 +719,12 @@ const BattleCharacter = ({ hero, isLeft, animState }) => {
         <HeroSprite char={hero} />
         
         {isTarget && animState.isHit && (
-          <div className={`${animState.effect === 'explosion' ? 'anim-explosion' : 'anim-slash-effect'} inset-0 w-full h-full text-3xl flex items-center justify-center pointer-events-none relative`}>
-            {animState.effect === 'explosion' ? (
-              <>
-                <span className="z-50 scale-150">💥</span>
-                <span className="absolute text-[8px] -translate-x-4 -translate-y-4 animate-ping">🔥</span>
-                <span className="absolute text-[8px] translate-x-4 translate-y-4 animate-ping">🔥</span>
-              </>
-            ) : (
-              <>
-                <span className="z-50 scale-125">⚔️</span>
-                <span className="absolute text-[6px] -translate-x-2 -translate-y-2 text-white animate-pulse">✨</span>
-                <span className="absolute text-[6px] translate-x-2 translate-y-2 text-white animate-pulse">✨</span>
-              </>
-            )}
+          <div className="anim-explosion inset-0 w-full h-full text-3xl flex items-center justify-center pointer-events-none relative">
+            <span className="z-50 scale-[2.0] drop-shadow-[0_0_15px_rgba(255,165,0,0.8)]">💥</span>
+            <span className="absolute text-[12px] -translate-x-6 -translate-y-6 animate-ping opacity-70">🔥</span>
+            <span className="absolute text-[12px] translate-x-6 translate-y-6 animate-ping opacity-70">🔥</span>
+            <span className="absolute text-[10px] -translate-x-8 translate-y-4 animate-bounce opacity-50">💨</span>
+            <span className="absolute text-[10px] translate-x-8 -translate-y-4 animate-bounce opacity-50">💨</span>
           </div>
         )}
         

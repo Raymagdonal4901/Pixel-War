@@ -21,11 +21,11 @@ export const PVP_MODES = {
     devFee: 0.2
   },
   TEAM_3V3: {
-    fee: 2, // TON per player
-    pool: 12, // 2 * 6
-    winnerPrize: 3.33, // Approx per winning player (10 TON total)
-    totalWinningTeamPrize: 10,
-    devFee: 2
+    fee: 3, // TON per player
+    pool: 6, // 3 + 3
+    winnerPrize: 5.5,
+    totalWinningTeamPrize: 5.5,
+    devFee: 0.5
   }
 };
 

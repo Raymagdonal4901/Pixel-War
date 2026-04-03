@@ -10,16 +10,29 @@ export const useReferral = (balance, setBalance) => {
     const saved = localStorage.getItem('pixel_war_referral');
     if (saved) return JSON.parse(saved);
     
-    // Default initial mock data for first-time users
+    // Reset to 0 for fresh start
     return {
-      tier1: { count: 12, earned: 85.5 },
-      tier2: { count: 48, earned: 42.0 },
-      tier3: { count: 156, earned: 18.0 },
-      unclaimed: 1.250,
-      totalEarned: 146.75,
-      refLink: 'pixelwar.io/ref/User123'
+      tier1: { count: 0, earned: 0 },
+      tier2: { count: 0, earned: 0 },
+      tier3: { count: 0, earned: 0 },
+      unclaimed: 0,
+      totalEarned: 0,
+      refLink: 'pixelwar.io/ref/User' + Math.floor(Math.random() * 9999)
     };
   });
+
+  const resetReferrals = useCallback(() => {
+    const newData = {
+      tier1: { count: 0, earned: 0 },
+      tier2: { count: 0, earned: 0 },
+      tier3: { count: 0, earned: 0 },
+      unclaimed: 0,
+      totalEarned: 0,
+      refLink: 'pixelwar.io/ref/User' + Math.floor(Math.random() * 9999)
+    };
+    setReferralData(newData);
+    localStorage.setItem('pixel_war_referral', JSON.stringify(newData));
+  }, []);
 
   // Save to local storage whenever data changes
   useEffect(() => {
@@ -62,6 +75,7 @@ export const useReferral = (balance, setBalance) => {
 
   return {
     referralData,
+    resetReferrals,
     claimRewards,
     refreshStats
   };
