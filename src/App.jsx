@@ -15,7 +15,7 @@ import { useReferral } from './hooks/useReferral';
 import { sendTelegramNotification } from './utils/telegram';
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = 'http://localhost:3001';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
 // Icons placeholders using emojis/text for retro vibe
 const IconBattle = () => (
