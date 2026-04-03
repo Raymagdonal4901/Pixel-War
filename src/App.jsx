@@ -501,6 +501,7 @@ function App() {
       newBalance: newBalance
     });
   };
+  window.handleDepositSimulation = handleDepositSimulation;
 
   const handleWithdrawSimulation = () => {
     const amount = parseFloat(withdrawAmount);
@@ -684,18 +685,12 @@ function App() {
             </div>
 
             {/* 2. In-Game Wallet Balance (DIAMONDS/TON) */}
-            <div 
-              onClick={() => handleDepositSimulation(15.0)}
-              className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[75px] justify-between text-[7px] hover:brightness-110 active:scale-95 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden"
-            >
+            <div className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-400/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
               <span className="flex items-center justify-center">
                 <span className="text-[8px] drop-shadow-[0_0_2px_#2ecc71]">💰</span>
               </span>
-              <div className="flex items-center gap-1">
-                <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)}</span>
-                <span className="w-2.5 h-2.5 bg-emerald-500 flex items-center justify-center text-black font-black leading-none rounded-[1px] hover:bg-emerald-400 transition-colors">+</span>
-              </div>
+              <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)} <span className="text-[5px]">TON</span></span>
             </div>
           </div>
 
