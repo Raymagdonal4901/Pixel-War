@@ -23,19 +23,39 @@ const DEV_FEE = 0.10;
 
 // Central Game State
 let pool = { red: SEED_AMOUNT, blue: SEED_AMOUNT };
-// The actual logic of pairs is currently handled fully synchronized by the frontend,
-// so the backend primarily acts as the "Pool" Sync.
+
+// ═══════════════════════════════════════════════════════════
+// Online Players Registry — stores real player info
+// Key: socket.id, Value: { name, wallet, joinedAt, socketId }
+// ═══════════════════════════════════════════════════════════
+const onlinePlayers = new Map();
+
+const getOnlinePlayersList = () => {
+  return Array.from(onlinePlayers.values()).map(p => ({
+    id: p.socketId,
+    name: p.name,
+    wallet: p.wallet,
+    joinedAt: p.joinedAt
+  }));
+};
+
+const broadcastOnlinePlayers = () => {
+  const players = getOnlinePlayersList();
+  io.emit('onlinePlayers', {
+    count: players.length,
+    players
+  });
+};
 
 // Helper to get time until next even hour locally
 const getNextEvenHourMs = () => {
   const d = new Date();
   let nextHour = d.getHours() + 1;
-  if (nextHour % 2 !== 0) nextHour += 1; // Round up to nearest even hour
+  if (nextHour % 2 !== 0) nextHour += 1;
 
   const nextDate = new Date(d);
   nextDate.setHours(nextHour, 0, 0, 0);
 
-  // If next is tomorrow 00:00, it handles automatically because date rolls over
   if (nextHour >= 24) {
     nextDate.setDate(nextDate.getDate() + 1);
     nextDate.setHours(0, 0, 0, 0);
@@ -44,15 +64,13 @@ const getNextEvenHourMs = () => {
   return nextDate.getTime() - d.getTime();
 };
 
-let matchStatus = 'OPEN'; // 'OPEN' or 'LOCKED'
-let connectedCount = 0;
+let matchStatus = 'OPEN';
 let matchmakingQueues = { '1v1': [], '3v3': [] };
 
 const updateClock = () => {
     const msUntil = getNextEvenHourMs();
     const secondsUntil = Math.floor(msUntil / 1000);
 
-    // Lock 60 seconds before match ends
     if (secondsUntil <= 60 && secondsUntil > 0) {
         matchStatus = 'LOCKED';
     } else if (secondsUntil <= 0) {
@@ -69,12 +87,6 @@ setInterval(() => {
   const clock = updateClock();
 
   if (clock.status === 'RESULT') {
-      // Simulate result end round handling...
-      // Realistically we wait for result window to finish, reset pool
-      // For MVP, we'll just clear the pool as soon as the window passes.
-      // E.g., if secondsUntil hits the exact next hour mark (close to 0), reset pool.
-      // To strictly match the frontend, frontend handles its own reset based on hour.
-      // So backend just resets pool when new hour starts.
       pool = { red: SEED_AMOUNT, blue: SEED_AMOUNT };
       matchStatus = 'OPEN';
   }
@@ -84,13 +96,31 @@ setInterval(() => {
     totalPool: pool.red + pool.blue,
     status: matchStatus,
     clock: clock.secondsUntil,
-    onlineCount: connectedCount
+    onlineCount: onlinePlayers.size
   });
 }, 1000);
 
 io.on('connection', (socket) => {
-  connectedCount++;
-  console.log(`[Socket] Player connected: ${socket.id} (Total: ${connectedCount})`);
+  console.log(`[Socket] Player connected: ${socket.id} (Total: ${onlinePlayers.size + 1})`);
+
+  // ═══════════════════════════════════════════════════════════
+  // Player Registration — frontend sends player info on connect
+  // ═══════════════════════════════════════════════════════════
+  socket.on('registerPlayer', (data) => {
+    // data: { name: string, wallet?: string }
+    const playerInfo = {
+      socketId: socket.id,
+      name: data?.name || 'Unknown',
+      wallet: data?.wallet ? `${data.wallet.slice(0, 4)}...${data.wallet.slice(-4)}` : null,
+      joinedAt: Date.now()
+    };
+
+    onlinePlayers.set(socket.id, playerInfo);
+    console.log(`[Register] ${playerInfo.name} (${socket.id}) registered. Online: ${onlinePlayers.size}`);
+
+    // Broadcast updated player list to all clients
+    broadcastOnlinePlayers();
+  });
 
   // Send initial state immediately
   socket.emit('poolSync', {
@@ -98,11 +128,16 @@ io.on('connection', (socket) => {
     totalPool: pool.red + pool.blue,
     status: matchStatus,
     clock: updateClock().secondsUntil,
-    onlineCount: connectedCount
+    onlineCount: onlinePlayers.size
+  });
+
+  // Send current online players list to the new connection
+  socket.emit('onlinePlayers', {
+    count: onlinePlayers.size,
+    players: getOnlinePlayersList()
   });
 
   socket.on('placeBet', (data) => {
-    // data: { side: 'red' | 'blue', amount: 1 }
     if (matchStatus === 'LOCKED') {
         socket.emit('betError', 'Match is locked!');
         return;
@@ -116,39 +151,34 @@ io.on('connection', (socket) => {
 
     console.log(`[Bet] ${socket.id} bet ${data.amount} on ${data.side.toUpperCase()}. Red=${pool.red}, Blue=${pool.blue}`);
     
-    // Immediately sync the pool so it feels instant
     io.emit('poolSync', {
       pool,
       totalPool: pool.red + pool.blue,
       status: matchStatus,
       clock: updateClock().secondsUntil,
-      onlineCount: connectedCount
+      onlineCount: onlinePlayers.size
     });
   });
 
   socket.on('joinQueue', (data) => {
-    // data: { mode: '1v1' | '3v3', player: { name, team } }
     const { mode, player } = data;
     if (!mode || !player) return;
 
     console.log(`[PVP] ${socket.id} (${player.name}) joined ${mode} queue.`);
 
     const queue = matchmakingQueues[mode];
-    // Check if someone else is waiting
     if (queue.length > 0) {
       const opponent = queue.shift();
       if (opponent.socket.id === socket.id) {
-          queue.push({ socket, player }); // Re-add if same person somehow
+          queue.push({ socket, player });
           return;
       }
 
       console.log(`[PVP] Match found! ${socket.id} vs ${opponent.socket.id}`);
 
-      // Notify both
       socket.emit('matchFound', { opponent: opponent.player });
       opponent.socket.emit('matchFound', { opponent: player });
     } else {
-      // Add to queue
       matchmakingQueues[mode].push({ socket, player });
     }
   });
@@ -160,13 +190,32 @@ io.on('connection', (socket) => {
     console.log(`[PVP] ${socket.id} left ${mode} queue.`);
   });
 
+  // ═══════════════════════════════════════════════════════════
+  // Player Update — allow re-registration (e.g., name change)
+  // ═══════════════════════════════════════════════════════════
+  socket.on('updatePlayer', (data) => {
+    const existing = onlinePlayers.get(socket.id);
+    if (existing) {
+      if (data?.name) existing.name = data.name;
+      if (data?.wallet) existing.wallet = `${data.wallet.slice(0, 4)}...${data.wallet.slice(-4)}`;
+      onlinePlayers.set(socket.id, existing);
+      broadcastOnlinePlayers();
+      console.log(`[Update] ${existing.name} updated their info.`);
+    }
+  });
+
   socket.on('disconnect', () => {
-    connectedCount = Math.max(0, connectedCount - 1);
+    const player = onlinePlayers.get(socket.id);
+    const playerName = player?.name || 'Unknown';
+    onlinePlayers.delete(socket.id);
+
     // Remove from all queues
     Object.keys(matchmakingQueues).forEach(mode => {
       matchmakingQueues[mode] = matchmakingQueues[mode].filter(q => q.socket.id !== socket.id);
     });
-    console.log(`[Socket] Player disconnected: ${socket.id} (Total: ${connectedCount})`);
+
+    console.log(`[Socket] ${playerName} disconnected: ${socket.id} (Total: ${onlinePlayers.size})`);
+    broadcastOnlinePlayers();
   });
 });
 

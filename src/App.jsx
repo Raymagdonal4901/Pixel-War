@@ -124,6 +124,7 @@ function App() {
 
   // Global Socket & Online Players State
   const [onlineCount, setOnlineCount] = useState(0);
+  const [onlinePlayers, setOnlinePlayers] = useState([]);
   const [poolData, setPoolData] = useState(null);
   const socketRef = useRef(null);
 
@@ -136,6 +137,20 @@ function App() {
       if (data.onlineCount !== undefined) {
         setOnlineCount(data.onlineCount);
       }
+    });
+
+    // Listen for real online players list
+    socketRef.current.on('onlinePlayers', (data) => {
+      setOnlineCount(data.count);
+      setOnlinePlayers(data.players || []);
+    });
+
+    // Register player with backend on connect
+    socketRef.current.on('connect', () => {
+      socketRef.current.emit('registerPlayer', {
+        name: localStorage.getItem('pixel_war_player_name') || 'Player1',
+        wallet: null // Will be updated when wallet connects
+      });
     });
 
     return () => {
@@ -299,7 +314,19 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('pixel_war_player_name', playerName);
+    // Sync name change to backend
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('updatePlayer', { name: playerName });
+    }
   }, [playerName]);
+
+  // Sync wallet address to backend when wallet connects/disconnects
+  useEffect(() => {
+    if (socketRef.current?.connected && wallet) {
+      const addr = wallet.account?.address || null;
+      socketRef.current.emit('updatePlayer', { wallet: addr });
+    }
+  }, [wallet]);
 
   // Real-time Balance Fetching
   const fetchBalance = useMemo(() => async () => {
@@ -726,12 +753,42 @@ function App() {
 
           {/* ROW 2: Identity & Language */}
           <div className="flex items-center gap-2">
-            {/* Online Status Indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.1)]">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
-              <span className="text-emerald-400 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
-                {onlineCount} {t('players.online') || 'ONLINE'}
-              </span>
+            {/* Online Status Indicator — Click to show player list */}
+            <div className="relative group/online">
+              <button 
+                className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.1)] hover:bg-emerald-500/20 transition-all cursor-pointer"
+              >
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
+                <span className="text-emerald-400 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
+                  {onlineCount} {t('players.online') || 'ONLINE'}
+                </span>
+              </button>
+              
+              {/* Dropdown: Online Players List */}
+              <div className="hidden group-hover/online:block absolute top-full left-0 mt-1 w-48 bg-[#0d0f14] border border-emerald-500/30 rounded-md shadow-[0_0_20px_rgba(16,185,129,0.15)] z-[999] overflow-hidden">
+                <div className="px-3 py-2 border-b border-emerald-500/20 bg-emerald-900/20">
+                  <span className="text-[7px] text-emerald-400 font-black uppercase tracking-[0.2em]">
+                    🟢 {t('players.online') || 'ONLINE'} ({onlineCount})
+                  </span>
+                </div>
+                <div className="max-h-40 overflow-y-auto no-scrollbar">
+                  {onlinePlayers.length > 0 ? onlinePlayers.map((p, i) => (
+                    <div key={p.id || i} className="flex items-center gap-2 px-3 py-1.5 border-b border-white/5 hover:bg-white/5 transition-colors">
+                      <span className="w-1 h-1 bg-emerald-400 rounded-full flex-shrink-0"></span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[8px] text-white font-bold truncate">{p.name}</span>
+                        {p.wallet && (
+                          <span className="text-[5px] text-gray-500 font-mono">{p.wallet}</span>
+                        )}
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="px-3 py-3 text-center">
+                      <span className="text-[7px] text-gray-600 italic">No players connected</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* 2. Player Identity (Name Only) */}
