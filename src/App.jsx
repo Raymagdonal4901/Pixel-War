@@ -168,11 +168,8 @@ function App() {
     setLongPressHero(null);
   };
   
-  // Starter Pack Onboarding States
-  const [starterHeroes, setStarterHeroes] = useState([]);
-  const [showStarterModal, setShowStarterModal] = useState(false);
-  
-  const [welcomeHero, setWelcomeHero] = useState(null);
+  // Welcome Gift States (Wallet Connected Reward)
+  const [welcomeHeroes, setWelcomeHeroes] = useState(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showPlusOneBadge, setShowPlusOneBadge] = useState(false);
 
@@ -300,68 +297,20 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchBalance]);
 
-  // One-time Starter Pack Trigger (Onboarding)
-  useEffect(() => {
-    const hasClaimed = localStorage.getItem('pixel_war_starter_claimed');
-    if (hasClaimed !== 'true' && starterHeroes.length === 0) {
-      // Pick 3 unique random Common robots
-      const commonPool = CHARACTERS.filter(c => c.rarity === 'Common');
-      const chosen = [];
-      const usedIndices = new Set();
-      
-      while(chosen.length < 3 && usedIndices.size < commonPool.length) {
-        const idx = Math.floor(Math.random() * commonPool.length);
-        if (!usedIndices.has(idx)) {
-          usedIndices.add(idx);
-          const base = commonPool[idx];
-          
-          // Generate stats (similar to useGacha but standalone for onboarding)
-          const mults = {
-            hp: (Math.floor(Math.random() * 26) + 90) / 100,
-            atk: (Math.floor(Math.random() * 26) + 90) / 100,
-            def: (Math.floor(Math.random() * 26) + 90) / 100,
-            spd: (Math.floor(Math.random() * 26) + 90) / 100
-          };
-          const avg = (mults.hp + mults.atk + mults.def + mults.spd) / 4;
-          const grade = avg >= 1.10 ? 'S' : avg > 1.0 ? 'A' : avg < 0.95 ? 'C' : 'B';
-          
-          chosen.push({
-            ...base,
-            hp: Math.round(base.hp * mults.hp),
-            maxHp: Math.round(base.hp * mults.hp),
-            atk: Math.round(base.atk * mults.atk),
-            def: Math.round(base.def * mults.def),
-            spd: Math.round(base.spd * mults.spd),
-            grade,
-            hpMult: mults.hp,
-            atkMult: mults.atk,
-            defMult: mults.def,
-            spdMult: mults.spd
-          });
-        }
-      }
-      
-      setTimeout(() => setStarterHeroes(chosen), 0);
-      // Small delay for better UX feel
-      setTimeout(() => setShowStarterModal(true), 1500);
-    }
-  }, [starterHeroes.length]);
-
-  // One-time Welcome Gift Trigger
+  // One-time Welcome Gift Trigger (Now 5 Free Heroes for connecting wallet)
   useEffect(() => {
     const hasClaimed = localStorage.getItem('pixel_war_welcome_claimed');
-    // If wallet connected and never claimed, trigger the free gift
-    if (wallet && hasClaimed !== 'true' && !welcomeHero) {
-      // Use settimeout to avoid synchronous setState during effect render
+    // If wallet connected and never claimed, trigger the 5-hero free gift
+    if (wallet && hasClaimed !== 'true' && !welcomeHeroes) {
       setTimeout(() => {
-        const results = pullMultiple(1);
+        const results = pullMultiple(5);
         if (results && results.length > 0) {
-          setWelcomeHero(results[0]);
+          setWelcomeHeroes(results);
           setShowWelcomeModal(true);
         }
-      }, 0);
+      }, 500); // Slight delay for better UX feel after connection
     }
-  }, [wallet, welcomeHero, pullMultiple]);
+  }, [wallet, welcomeHeroes, pullMultiple]);
 
   // Generic Internal Payment Helper (Deducts from gameBalance, adds to devBalance)
   const executeGamePayment = async (amount, label) => {
@@ -487,20 +436,13 @@ function App() {
     }, 2500); // 2.5s Fusion sequence
   };
 
-  const handleClaimStarterPack = () => {
-    if (starterHeroes.length > 0) {
-      addHeroes(starterHeroes);
-      localStorage.setItem('pixel_war_starter_claimed', 'true');
-      setShowStarterModal(false);
-    }
-  };
-
   const handleClaimWelcomeGift = () => {
-    if (welcomeHero) {
-      addHeroes([welcomeHero]);
+    if (welcomeHeroes && welcomeHeroes.length > 0) {
+      addHeroes(welcomeHeroes);
       localStorage.setItem('pixel_war_welcome_claimed', 'true');
       setShowPlusOneBadge(true);
       setShowWelcomeModal(false);
+      setWelcomeHeroes(null);
       // Revert badge after 3 seconds
       setTimeout(() => setShowPlusOneBadge(false), 3000);
     }
@@ -1281,6 +1223,50 @@ function App() {
                   </button>
               </div>
 
+              {/* Gacha Lock Overlay for Unconnected Wallets */}
+              {!wallet && (
+                <div className="absolute inset-x-0 bottom-0 top-[80px] z-[40] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md p-6 text-center animate-in fade-in duration-500">
+                  <div className="w-20 h-20 mb-6 bg-gradient-to-br from-gray-700 to-gray-900 rounded-2xl flex items-center justify-center shadow-2xl border border-white/10">
+                    <span className="text-4xl grayscale opacity-50">🔒</span>
+                  </div>
+                  <h3 className="text-white text-lg font-black uppercase tracking-widest mb-3">
+                    GACHA RESTRICTED
+                  </h3>
+                  <p className="text-gray-400 text-[10px] font-bold uppercase leading-relaxed max-w-[220px] mb-8">
+                    Connect your TON wallet to access the Gacha system and summon new robots.
+                  </p>
+                  
+                  {/* Reuse the custom connect button style if needed, but normally TonConnect button is nearby */}
+                  <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                    <p className="text-yellow-500 text-[9px] font-black uppercase animate-pulse">
+                      Connect Wallet to Start
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Gacha Lock Overlay for Unconnected Wallets */}
+              {!wallet && (
+                <div className="absolute inset-x-0 bottom-0 top-[80px] z-[40] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md p-6 text-center animate-in fade-in duration-500">
+                  <div className="w-20 h-20 mb-6 bg-gradient-to-br from-gray-700 to-gray-900 rounded-2xl flex items-center justify-center shadow-2xl border border-white/10">
+                    <span className="text-4xl grayscale opacity-50">🔒</span>
+                  </div>
+                  <h3 className="text-white text-lg font-black uppercase tracking-widest mb-3">
+                    GACHA RESTRICTED
+                  </h3>
+                  <p className="text-gray-400 text-[10px] font-bold uppercase leading-relaxed max-w-[220px] mb-8">
+                    Connect your TON wallet to access the Gacha system and summon new robots.
+                  </p>
+                  
+                  {/* Reuse the custom connect button style if needed, but normally TonConnect button is nearby */}
+                  <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                    <p className="text-yellow-500 text-[9px] font-black uppercase animate-pulse">
+                      Connect Wallet to Start
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Featured Drops Area (Fixed 2-Line Layout with ATK, YIELD & PULSE) */}
               <div className="w-full mb-4 pt-4 pb-1 px-4">
                  <div className="flex flex-wrap justify-center gap-x-2 gap-y-4 px-1">
@@ -1958,60 +1944,6 @@ function App() {
         );
       })()}
 
-      {/* ═══════ Welcome Starter Pack Modal ═══════ */}
-      {showStarterModal && starterHeroes.length === 3 && (
-        <div className="fixed inset-0 z-[500] bg-black/95 backdrop-blur-sm flex items-center justify-center p-4 min-h-screen animate-in fade-in duration-500">
-          <div className="bg-[#12141d] w-full max-w-[480px] border-[4px] border-[#000] relative shadow-[15px_15px_0_0_#000] overflow-hidden">
-            {/* Cyber Header */}
-            <div className="bg-[#facc15] border-b-[4px] border-[#000] px-6 py-5">
-              <h3 className="text-black text-xl font-black tracking-[0.1em] uppercase drop-shadow-sm leading-none pt-1">
-                {t('onboarding.welcomeTitle') || "COMMANDER ASSIGNED!"}
-              </h3>
-              <p className="text-black/80 text-[10px] font-bold mt-2 uppercase tracking-widest">
-                {t('onboarding.welcomeSub') || "YOUR FIRST SQUAD IS READY FOR DEPLOYMENT"}
-              </p>
-            </div>
-
-            <div className="p-6 sm:p-8">
-              <div className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-6 text-center leading-relaxed">
-                {t('onboarding.description') || "TAKE THESE BASIC UNITS TO START YOUR JOURNEY."}
-              </div>
-
-              {/* Heroes Grid */}
-              <div className="grid grid-cols-3 gap-3 mb-8">
-                {starterHeroes.map((hero, idx) => (
-                   <div key={idx} className="flex flex-col items-center group">
-                      <div className="w-full aspect-square bg-[#1c1f26] border-[3px] border-black shadow-[4px_4px_0_0_#000] mb-3 flex items-center justify-center p-2 relative overflow-hidden group-hover:scale-105 transition-transform">
-                        <div className="absolute inset-0 opacity-10 anim-scanline pointer-events-none"></div>
-                        <div className="w-14 h-14 relative z-10 drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]">
-                          <Sprite char={hero} />
-                        </div>
-                        <div className="absolute -top-1 -right-1 bg-gray-500 text-white text-[6px] font-black px-1 border-2 border-black">
-                          {hero.rarity}
-                        </div>
-                      </div>
-                      <div className="text-white text-[7px] font-black text-center truncate w-full uppercase opacity-70">
-                        {hero.name}
-                      </div>
-                   </div>
-                ))}
-              </div>
-
-              <button 
-                onClick={handleClaimStarterPack}
-                className="w-full h-16 bg-[#facc15] hover:bg-[#ffe045] text-black text-[13px] font-black tracking-[0.2em] uppercase transition-all border-[4px] border-[#fef08a] border-b-[#854d0e] border-r-[#854d0e] active:translate-y-1 active:shadow-none shadow-[4px_4px_0_0_#000]"
-              >
-                {t('onboarding.claimAction') || "CLAIM STARTER PACK"}
-              </button>
-            </div>
-            
-            {/* Corner Details */}
-            <div className="absolute top-2 right-2 text-[6px] text-black font-black bg-black/10 px-1">PX-01</div>
-            <div className="absolute bottom-2 left-2 text-[6px] text-white/20 font-black">PIXEL_WAR_OS_v1.0.4</div>
-          </div>
-        </div>
-      )}
-
       {/* ═══════ Upgrade Success Modal ═══════ */}
       {upgradeResult && (
         <div className="fixed inset-0 z-[400] bg-black/90 flex items-center justify-center p-4 min-h-screen animate-in fade-in duration-300">
@@ -2595,64 +2527,62 @@ function App() {
           </div>
         </div>
       )}
-      {/* Welcome Bonus Modal */}
-      {showWelcomeModal && welcomeHero && (
+      {/* Welcome Bonus Modal (Upgraded to 5-Hero Summon) */}
+      {showWelcomeModal && welcomeHeroes && welcomeHeroes.length === 5 && (
         <div className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-[#1c1e29] border-4 border-[#ffd700] w-full max-w-[320px] relative overflow-hidden shadow-[0_0_50px_rgba(255,215,0,0.4)] flex flex-col items-center p-6">
+          <div className="bg-[#12141c] border-[3px] border-[#ffd700] w-full max-w-[420px] relative overflow-hidden shadow-[0_0_80px_rgba(255,215,0,0.2)] flex flex-col items-center">
             
-            {/* Header */}
-            <h2 className="text-[#ffd700] text-sm font-black tracking-[0.2em] uppercase text-center mb-6 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] px-2">
-              {t('welcome.title')}<br/>
-              <span className="text-[10px] text-yellow-100">{t('welcome.freeHero')}</span>
-            </h2>
+            {/* Header with Glow */}
+            <div className="w-full bg-[#ffd700] p-5 text-center border-b-[3px] border-black">
+              <h2 className="text-black text-xl font-black tracking-[0.15em] uppercase drop-shadow-sm leading-none">
+                {t('welcome.title') || "WELCOME COMMANDER!"}
+              </h2>
+              <p className="text-black/70 text-[9px] font-bold mt-2 uppercase tracking-widest">
+                {t('welcome.freeHero') || "COMMENCING INITIAL DEPLOYMENT GIFT"}
+              </p>
+            </div>
 
-            {/* Gacha Icon */}
-            <div className="relative mb-6 group">
-              <div className="absolute inset-0 bg-[#ffd700] rounded-full blur-[20px] opacity-20 group-hover:opacity-40 transition-opacity animate-pulse"></div>
-              <div className="w-24 h-24 relative z-10 drop-shadow-[0_5px_15px_rgba(0,0,0,0.5)] bounce-slow">
-                <img src="/gacha_icon.png" alt="Gacha" className="w-full h-full object-contain image-pixelated" />
+            <div className="p-6 w-full">
+              {/* Connection Success Info */}
+              <div className="flex items-center justify-center gap-3 mb-6 bg-emerald-500/10 border border-emerald-500/20 py-2 rounded-lg">
+                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">
+                  {t('welcome.connected') || "WALLET CONNECTED"}
+                </p>
               </div>
-            </div>
 
-            {/* Connection Success Message */}
-            <div className="text-center mb-6 space-y-1">
-              <p className="text-[#2ecc71] text-[10px] font-black uppercase tracking-widest animate-pulse">{t('welcome.connected')}</p>
-              <p className="text-white text-[8px] font-bold opacity-80 uppercase tracking-widest whitespace-nowrap">{t('welcome.received')}</p>
-            </div>
+              <div className="text-white/40 text-[8px] font-bold text-center uppercase tracking-[0.3em] mb-4">
+                {t('welcome.received') || "─── INCOMING 5-UNIT SQUAD ───"}
+              </div>
 
-            {/* Hero Result Preview */}
-            <div className={`w-full bg-[#0f111a] border-2 p-3 mb-6 relative overflow-hidden shadow-inner flex gap-3 items-center`} style={{ borderColor: welcomeHero.color }}>
-               {/* Hero Sprite */}
-               <div className={`w-14 h-14 bg-black/40 flex items-center justify-center pixel-border-sm p-1`} style={{ borderColor: welcomeHero.color }}>
-                  <div className="w-10 h-10"><Sprite char={welcomeHero} /></div>
-               </div>
-               {/* Hero Stats */}
-               <div className="flex-1 flex flex-col gap-1">
-                  <div className="text-[7px] font-black uppercase tracking-widest truncate" style={{ color: welcomeHero.color }}>
-                    {welcomeHero.rarity} ROBOT
-                  </div>
-                  <div className="text-white text-[9px] font-bold truncate mb-1">{welcomeHero.name}</div>
-                  <div className="flex gap-3 text-[8px] font-mono">
-                    <span className="text-red-400">❤️ HP:{welcomeHero.hp}</span>
-                    <span className="text-orange-400">⚔️ ATK:{welcomeHero.atk}</span>
-                  </div>
-               </div>
-               {/* Rarity Label Overlay */}
-               <div className="absolute -top-1 -right-4 bg-black/80 px-4 py-1 rotate-[35deg] text-[6px] font-black border-b border-[#ffd700] uppercase" style={{ color: welcomeHero.color }}>
-                  {welcomeHero.rarity}
-               </div>
-            </div>
+              {/* 5-Hero Grid Preview */}
+              <div className="grid grid-cols-3 gap-2.5 mb-8">
+                 {welcomeHeroes.map((hero, idx) => (
+                   <div key={idx} className={`relative bg-black/40 border-2 p-1.5 flex flex-col items-center ${idx >= 3 ? 'translate-x-[50%]' : ''}`} 
+                        style={{ borderColor: hero.color + '66' }}>
+                      <div className="w-12 h-12 flex items-center justify-center mb-1">
+                        <div className="w-10 h-10 transform scale-110" style={{ filter: `drop-shadow(0 0 5px ${hero.color})` }}>
+                          <Sprite char={hero} />
+                        </div>
+                      </div>
+                      <div className="text-[6px] font-black uppercase opacity-60 truncate w-full text-center" style={{ color: hero.color }}>
+                        {hero.rarity}
+                      </div>
+                   </div>
+                 ))}
+              </div>
 
-            {/* Claim Button */}
-            <button 
-              onClick={handleClaimWelcomeGift}
-              className="w-full py-4 bg-[#2563eb] hover:bg-[#3b82f6] text-white text-[12px] font-black tracking-[0.2em] pixel-border border-b-4 border-blue-800 transition-all hover:scale-[1.03] active:scale-[0.97] shadow-lg shadow-blue-500/20"
-            >
-              {t('welcome.claim')}
-            </button>
+              {/* Claim Button */}
+              <button 
+                onClick={handleClaimWelcomeGift}
+                className="w-full py-4 bg-[#7c3aed] hover:bg-[#8b5cf6] text-white text-[13px] font-black tracking-[0.2em] uppercase transition-all border-[4px] border-[#a78bfa] border-b-[#5b21b6] border-r-[#5b21b6] active:translate-y-1 active:shadow-none shadow-[8px_8px_0_0_#000]"
+              >
+                {t('welcome.claim') || "CLAIM SQUAD!"}
+              </button>
+            </div>
 
             {/* Scanline FX */}
-            <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-px animate-scanline"></div>
+            <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-px animate-scanline opacity-30"></div>
           </div>
         </div>
       )}
