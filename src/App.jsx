@@ -13,6 +13,9 @@ import ReferralHub from './components/ReferralHub';
 import { useT } from './i18n/LanguageContext';
 import { useReferral } from './hooks/useReferral';
 import { sendTelegramNotification } from './utils/telegram';
+import { io } from 'socket.io-client';
+
+const SOCKET_URL = 'http://localhost:3001';
 
 // Icons placeholders using emojis/text for retro vibe
 const IconBattle = () => (
@@ -118,6 +121,27 @@ function App() {
   const [pullResult, setPullResult] = useState(null);
   const [isPulling, setIsPulling] = useState(false);
   const [showRates, setShowRates] = useState(false);
+
+  // Global Socket & Online Players State
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [poolData, setPoolData] = useState(null);
+  const socketRef = useRef(null);
+
+  useEffect(() => {
+    // Initialize socket connection globally
+    socketRef.current = io(SOCKET_URL);
+    
+    socketRef.current.on('poolSync', (data) => {
+      setPoolData(data);
+      if (data.onlineCount !== undefined) {
+        setOnlineCount(data.onlineCount);
+      }
+    });
+
+    return () => {
+      if (socketRef.current) socketRef.current.disconnect();
+    };
+  }, []);
   const [repairTarget, setRepairTarget] = useState(null);
   const [heroFilter, setHeroFilter] = useState('ALL');
   const [selectedHero, setSelectedHero] = useState(null);
@@ -700,6 +724,14 @@ function App() {
 
           {/* ROW 2: Identity & Language */}
           <div className="flex items-center gap-2">
+            {/* Online Status Indicator */}
+            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.1)]">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
+              <span className="text-emerald-400 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
+                {onlineCount} {t('players.online') || 'ONLINE'}
+              </span>
+            </div>
+
             {/* 2. Player Identity (Name Only) */}
             <div 
               className="flex items-center cursor-pointer group"
@@ -1604,6 +1636,9 @@ function App() {
             userHeroes={userHeroes} 
             pvpStats={pvpStats} 
             setPvpStats={setPvpStats} 
+            gameBalance={gameBalance}
+            setGameBalance={setGameBalance}
+            setDevBalance={setDevBalance}
             onLongPressStart={handlePointerDown}
             onLongPressEnd={handlePointerUp}
           />
@@ -1614,10 +1649,12 @@ function App() {
           <ArcadeBetting 
             pvpStats={pvpStats} 
             setPvpStats={setPvpStats} 
-            gameBalance={gameBalance}
+            gameBalance={gameBalance} 
             setGameBalance={setGameBalance}
-            setDevBalance={setDevBalance}
+            setDevBalance={setDevBalance} 
             triggerModal={triggerModal}
+            socket={socketRef.current}
+            poolSyncData={poolData}
           />
         )}
 
@@ -1824,9 +1861,9 @@ function App() {
         const dupes = getDuplicates(selectedHero.instanceId);
         const sameRarity = getSameRarityHeroes(selectedHero.rarity, selectedHero.instanceId);
         const isMaxLevel = heroLevel >= 5;
-        const canUpgrade = dupes.length > 0 && !isMaxLevel && tonBalance >= UPGRADE_FEE_TON;
+        const canUpgrade = dupes.length > 0 && !isMaxLevel && gameBalance >= UPGRADE_FEE_TON;
         const isLegendary = selectedHero.rarity === 'Legendary';
-        const canMerge = sameRarity.length >= 2 && !isLegendary && tonBalance >= UPGRADE_FEE_TON;
+        const canMerge = sameRarity.length >= 2 && !isLegendary && gameBalance >= UPGRADE_FEE_TON;
 
         const getSpriteBg = (rarity) => {
           switch(rarity) {

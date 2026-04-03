@@ -159,6 +159,7 @@ const translations = {
   'welcome.connected': { th: 'เชื่อมต่อสำเร็จ', en: 'Connection Successful' },
   'welcome.received': { th: 'คุณได้รับ: 1 กาชาฮีโร่ฟรี!', en: 'You received: 1 Free Hero Gacha!' },
   'welcome.claim': { th: 'รับเลย!', en: 'CLAIM NOW!' },
+  'players.online': { th: 'ออนไลน์', en: 'ONLINE' },
 
   // --- Modal General ---
   'modal.understood': { th: 'รับทราบ', en: 'UNDERSTOOD' },

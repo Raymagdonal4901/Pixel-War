@@ -22,10 +22,7 @@ const SEED_AMOUNT = 1;
 const DEV_FEE = 0.10;
 
 // Central Game State
-let currentRound = 103;
 let pool = { red: SEED_AMOUNT, blue: SEED_AMOUNT };
-let matchHistory = [];
-// This stores basic info about current and upcoming matches 
 // The actual logic of pairs is currently handled fully synchronized by the frontend,
 // so the backend primarily acts as the "Pool" Sync.
 
@@ -48,6 +45,7 @@ const getNextEvenHourMs = () => {
 };
 
 let matchStatus = 'OPEN'; // 'OPEN' or 'LOCKED'
+let connectedCount = 0;
 
 const updateClock = () => {
     const msUntil = getNextEvenHourMs();
@@ -77,7 +75,6 @@ setInterval(() => {
       // To strictly match the frontend, frontend handles its own reset based on hour.
       // So backend just resets pool when new hour starts.
       pool = { red: SEED_AMOUNT, blue: SEED_AMOUNT };
-      currentRound++;
       matchStatus = 'OPEN';
   }
 
@@ -85,19 +82,22 @@ setInterval(() => {
     pool,
     totalPool: pool.red + pool.blue,
     status: matchStatus,
-    clock: clock.secondsUntil
+    clock: clock.secondsUntil,
+    onlineCount: connectedCount
   });
 }, 1000);
 
 io.on('connection', (socket) => {
-  console.log(`[Socket] Player connected: ${socket.id}`);
+  connectedCount++;
+  console.log(`[Socket] Player connected: ${socket.id} (Total: ${connectedCount})`);
 
   // Send initial state immediately
   socket.emit('poolSync', {
     pool,
     totalPool: pool.red + pool.blue,
     status: matchStatus,
-    clock: updateClock().secondsUntil
+    clock: updateClock().secondsUntil,
+    onlineCount: connectedCount
   });
 
   socket.on('placeBet', (data) => {
@@ -120,12 +120,14 @@ io.on('connection', (socket) => {
       pool,
       totalPool: pool.red + pool.blue,
       status: matchStatus,
-      clock: updateClock().secondsUntil
+      clock: updateClock().secondsUntil,
+      onlineCount: connectedCount
     });
   });
 
   socket.on('disconnect', () => {
-    console.log(`[Socket] Player disconnected: ${socket.id}`);
+    connectedCount = Math.max(0, connectedCount - 1);
+    console.log(`[Socket] Player disconnected: ${socket.id} (Total: ${connectedCount})`);
   });
 });
 

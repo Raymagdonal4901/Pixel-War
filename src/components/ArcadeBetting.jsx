@@ -2,9 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CHARACTERS } from '../data/characters';
 import { useT } from '../i18n/LanguageContext';
 import { sendTelegramNotification } from '../utils/telegram';
-import { io } from 'socket.io-client';
-
-const socket = io("http://localhost:3001");
 
 // ═══════════════════════════════════════════
 // Constants
@@ -146,7 +143,7 @@ const UpcomingCard = ({ match }) => (
 // ═══════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════
-const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, setDevBalance, triggerModal }) => {
+const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, setDevBalance, triggerModal, socket, poolSyncData }) => {
   const { t } = useT();
   const [gameState, setGameState] = useState('idle');
   const [matchInfo, setMatchInfo] = useState(() => getCurrentMatchRound());
@@ -197,6 +194,8 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, set
 
   // Socket Connection and State Sync
   useEffect(() => {
+    if (!socket) return;
+
     const handleSync = (data) => {
       setPool(data.pool);
       // Sync clock
@@ -227,10 +226,16 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, set
     };
 
     socket.on('poolSync', handleSync);
-    return () => socket.off('poolSync', handleSync);
-  }, [gameState]);
+    
+    // Also trigger an immediate sync if we already have data
+    if (poolSyncData) {
+      handleSync(poolSyncData);
+    }
 
-  const calculateAndDistributeRewards = useCallback((matchResult) => {
+    return () => socket.off('poolSync', handleSync);
+  }, [socket, poolSyncData, gameState]);
+
+  const calculateAndDistributeRewards = useCallback(() => {
     const tp = pool.red + pool.blue;
     const df = tp * DEV_FEE;
     

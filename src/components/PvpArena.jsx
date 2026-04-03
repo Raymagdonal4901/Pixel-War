@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CHARACTERS, RARITY_COLORS } from '../data/characters';
 import { PVP_MODES } from '../data/tokenomics';
 import { useT } from '../i18n/LanguageContext';
+import { sendTelegramNotification } from '../utils/telegram';
 
 const ELEMENT_ICONS = {
   'PLASMA': '🔥',
@@ -104,7 +105,7 @@ const WatermarkBg = () => (
   ></div>
 );
 
-export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPressStart, onLongPressEnd }) {
+export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPressStart, onLongPressEnd, gameBalance, setGameBalance, setDevBalance }) {
   const { t } = useT();
   const [view, setView] = useState('lounge'); // 'lounge' | 'matchmaking' | 'battle' | 'result'
   const [mode, setMode] = useState('1v1'); // '1v1' | '3v3'
@@ -188,6 +189,24 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
   };
 
   const payAndFight = () => {
+    const fee = currentSettings.fee;
+    const devFee = currentSettings.devFee;
+
+    // Deduct fee from game balance
+    setGameBalance(prev => prev - fee);
+
+    // Add dev fee to dev balance
+    setDevBalance(prev => {
+      const newDevBalance = prev + devFee;
+      // Send notification (Simulated)
+      sendTelegramNotification('devFee', {
+        amount: devFee,
+        totalDevBalance: newDevBalance,
+        round: "PVP " + mode
+      });
+      return newDevBalance;
+    });
+
     // Increment match count
     setPvpStats(prev => ({ ...prev, count: Math.min(5, prev.count + 1) }));
     setBattleLogs(["Match starts!"]);
@@ -307,8 +326,13 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
 
         const finalAliveP = nextPlayer.filter(p => p.currentHp > 0);
         const finalAliveE = nextEnemy.filter(e => e.currentHp > 0);
-        if (finalAliveP.length === 0) setWinner('enemy');
-        else if (finalAliveE.length === 0) setWinner('player');
+        if (finalAliveP.length === 0) {
+          setWinner('enemy');
+        } else if (finalAliveE.length === 0) {
+          setWinner('player');
+          // Add reward to gameBalance
+          setGameBalance(prev => prev + currentSettings.winnerPrize);
+        }
 
         setTimeout(() => setAnimState({}), 800);
       }, 450);
@@ -321,7 +345,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
       clearTimeout(turnTimeout);
       runningRef.current = false;
     };
-  }, [view, winner, mode]);
+  }, [view, winner, mode, currentSettings.winnerPrize, setGameBalance]);
 
   if (view === 'lounge' && !isPicking) {
 
@@ -358,7 +382,6 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                 </div>
               </div>
 
-              {/* 1 VS 1 Card */}
               <PvpModeCard 
                 title="1 VS 1"
                 heroes={selected1v1.map(i => userHeroes[i]).filter(Boolean)}
@@ -366,7 +389,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                 fee={PVP_MODES.DUEL_1V1.fee}
                 onAction={() => startMatchmaking('1v1')}
                 isReady={selected1v1.length === 1}
-                disabled={pvpStats.count >= 5}
+                disabled={pvpStats.count >= 5 || gameBalance < PVP_MODES.DUEL_1V1.fee}
               />
 
               {/* 3 VS 3 Card */}
@@ -377,7 +400,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                 fee={PVP_MODES.TEAM_3V3.fee}
                 onAction={() => startMatchmaking('3v3')}
                 isReady={selected3v3.length === 3}
-                disabled={pvpStats.count >= 5}
+                disabled={pvpStats.count >= 5 || gameBalance < PVP_MODES.TEAM_3V3.fee}
               />
             </div>
          </div>
@@ -459,15 +482,18 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
               </div>
            </div>
 
-           {/* Interaction Button */}
-           <button 
-             onClick={!disabled ? onAction : null}
-             disabled={disabled}
-             className={`pixel-button w-full py-2 font-bold tracking-[0.15em] shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_0_#1a1c23] flex items-center justify-center gap-3 transition-all ${disabled ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-80' : 'bg-[#2c303c] hover:bg-[#34495e] text-white animate-in slide-in-from-bottom-2'}`}
-           >
-             <span className="text-xl uppercase">{disabled ? 'LIMIT' : (isReady ? `${fee}` : 'CREATE')}</span>
-             {!disabled && <img src="/ton_coin.png" alt="T" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(0,152,234,0.7)]" />}
-           </button>
+            {/* Interaction Button */}
+            <button 
+              onClick={!disabled ? onAction : null}
+              disabled={disabled}
+              className={`pixel-button w-full py-2 font-bold tracking-[0.15em] shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_0_#1a1c23] flex items-center justify-center gap-3 transition-all ${disabled ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-80' : 'bg-[#2c303c] hover:bg-[#34495e] text-white animate-in slide-in-from-bottom-2'}`}
+            >
+              <span className="text-xl uppercase">
+                {pvpStats.count >= 5 ? 'LIMIT' : 
+                 (gameBalance < fee ? 'NO FUNDS' : (isReady ? `${fee}` : 'CREATE'))}
+              </span>
+              {!disabled && <img src="/ton_coin.png" alt="T" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(0,152,234,0.7)]" />}
+            </button>
         </div>
       </div>
     );
@@ -654,7 +680,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
            {winner === 'player' && (
              <div className="flex flex-col items-center">
                <p className="text-white text-xs mb-1">Earned: {currentSettings.winnerPrize} TON</p>
-               <span className="text-[8px] text-[#f1c40f]/60 animate-pulse">MATCH TRANSFERRED TO WALLET</span>
+               <span className="text-[8px] text-[#f1c40f]/60 animate-pulse">REWARD ADDED TO GAME BALANCE</span>
              </div>
            )}
            {winner === 'enemy' && <p className="text-white/60 text-[10px] mb-6">Better luck next time, pilot.</p>}
