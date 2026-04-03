@@ -12,6 +12,7 @@ import ArcadeBetting from './components/ArcadeBetting';
 import ReferralHub from './components/ReferralHub';
 import { useT } from './i18n/LanguageContext';
 import { useReferral } from './hooks/useReferral';
+import { sendTelegramNotification } from './utils/telegram';
 
 // Icons placeholders using emojis/text for retro vibe
 const IconBattle = () => (
@@ -199,6 +200,7 @@ function App() {
   }, [gameBalance]);
 
   // Custom Themed Modal System
+  const [successNotification, setSuccessNotification] = useState(null);
   const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, 
     type: 'alert', // 'alert' | 'confirm'
@@ -474,6 +476,60 @@ function App() {
     });
   };
 
+  const handleDepositSimulation = (baseAmount = 15.0) => {
+    const bonusPct = 0.20;
+    const bonusAmount = baseAmount * bonusPct;
+    const total = baseAmount + bonusAmount;
+    const prevBalance = gameBalance;
+    const newBalance = prevBalance + total;
+
+    setGameBalance(newBalance);
+    setSuccessNotification({
+      type: 'deposit',
+      amount: baseAmount,
+      bonus: bonusAmount,
+      total: total,
+      prevBalance: prevBalance,
+      newBalance: newBalance
+    });
+
+    // Send Telegram Notification
+    sendTelegramNotification('deposit', {
+      amount: baseAmount,
+      bonus: bonusAmount,
+      total: total,
+      newBalance: newBalance
+    });
+  };
+
+  const handleWithdrawSimulation = () => {
+    const amount = parseFloat(withdrawAmount);
+    if (isNaN(amount) || amount <= 0 || amount > gameBalance) return;
+    
+    const fees = amount * 0.1;
+    const net = amount - fees;
+    const newBalance = gameBalance - amount;
+    
+    setGameBalance(newBalance);
+    const txData = {
+      type: 'withdrawal',
+      amount: amount,
+      fees: fees,
+      net: net,
+      address: withdrawAddress,
+      txId: '8926e9' + Math.random().toString(16).substring(2, 6) + '...' + Math.random().toString(16).substring(2, 6)
+    };
+
+    setSuccessNotification(txData);
+    setWithdrawAmount('');
+
+    // Send Telegram Notification
+    sendTelegramNotification('withdrawal', {
+      amount: amount,
+      txId: txData.txId
+    });
+  };
+
   const handleWithdrawAmountChange = (e) => {
     const val = e.target.value;
     if (val === '' || /^\d*\.?\d*$/.test(val)) {
@@ -628,12 +684,18 @@ function App() {
             </div>
 
             {/* 2. In-Game Wallet Balance (DIAMONDS/TON) */}
-            <div className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
+            <div 
+              onClick={() => handleDepositSimulation(15.0)}
+              className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[75px] justify-between text-[7px] hover:brightness-110 active:scale-95 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden"
+            >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-400/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
               <span className="flex items-center justify-center">
                 <span className="text-[8px] drop-shadow-[0_0_2px_#2ecc71]">💰</span>
               </span>
-              <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)} <span className="text-[5px]">TON</span></span>
+              <div className="flex items-center gap-1">
+                <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)}</span>
+                <span className="w-2.5 h-2.5 bg-emerald-500 flex items-center justify-center text-black font-black leading-none rounded-[1px] hover:bg-emerald-400 transition-colors">+</span>
+              </div>
             </div>
           </div>
 
@@ -1599,6 +1661,7 @@ function App() {
                 <div className="mt-4 mb-8">
                   <button 
                     disabled={!withdrawAmount || !withdrawAddress}
+                    onClick={handleWithdrawSimulation}
                     className="w-full py-4 text-sm font-bold tracking-widest text-[#111] flex justify-center items-center gap-3 transition-all relative overflow-hidden"
                     style={{
                        backgroundColor: (!withdrawAmount || !withdrawAddress) ? '#4a4a4a' : '#f1c40f',
@@ -2653,6 +2716,102 @@ function App() {
                Dismiss
              </button>
           </div>
+        </div>
+      )}
+      {/* Rich Success Notification Overlays */}
+      {successNotification && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-300">
+           {/* Backdrop */}
+           <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setSuccessNotification(null)}></div>
+           
+           {/* Modal Body */}
+           <div className={`relative w-full max-w-sm ${successNotification.type === 'deposit' ? 'bg-[#0f1a14] border-emerald-500/50' : 'bg-[#0a121a] border-blue-500/50'} border-[3px] shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden`}>
+              
+              {/* Header Title with Animated Decoration */}
+              <div className={`px-5 py-4 border-b-[3px] border-black/20 flex items-center gap-3 ${successNotification.type === 'deposit' ? 'bg-[#10b981]' : 'bg-[#3b82f6]'}`}>
+                 <span className="text-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] animate-bounce-slow">✅</span>
+                 <h2 className="text-white text-[14px] font-black tracking-[0.1em] uppercase drop-shadow-[0_2px_2px_rgba(0,0,0,0.3)] pt-1">
+                    {successNotification.type === 'deposit' ? t('notification.depositConfirmed') : t('notification.withdrawalApproved')}
+                 </h2>
+              </div>
+
+              {/* Content Container */}
+              <div className="p-6 bg-gradient-to-b from-black/20 to-transparent">
+                 {successNotification.type === 'deposit' ? (
+                   /* DEPOSIT CONTENT */
+                   <div className="space-y-4">
+                      {/* Breakdown List */}
+                      <div className="space-y-2 font-bold tracking-wide">
+                         <div className="flex items-center gap-4 text-emerald-400">
+                            <span className="text-2xl drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">💰</span>
+                            <span className="text-[12px] flex-1">+{successNotification.amount.toFixed(4)} TON {t('notification.addedToBalance')}</span>
+                         </div>
+                         <div className="flex items-center gap-4 text-yellow-400">
+                            <span className="text-2xl drop-shadow-[0_0_8px_rgba(234,179,8,0.3)]">🎁</span>
+                            <span className="text-[11px] flex-1">{t('notification.promoBonus')}: +{successNotification.bonus.toFixed(4)} TON (20% extra!)</span>
+                         </div>
+                         <div className="flex items-center gap-4 text-white/50 border-t border-white/5 pt-2">
+                            <span className="text-lg opacity-60">💼</span>
+                            <span className="text-[10px] flex-1">{t('notification.totalCredited')}: {successNotification.total.toFixed(4)} TON</span>
+                         </div>
+                         <div className="flex items-center gap-4 text-white">
+                            <span className="text-lg opacity-60">💼</span>
+                            <span className="text-[11px] flex-1">{t('notification.newBalance')}: <span className="text-emerald-400">{successNotification.newBalance.toFixed(4)} TON</span></span>
+                         </div>
+                      </div>
+
+                      <p className="text-gray-500 text-[9px] font-bold text-center mt-6 tracking-widest uppercase opacity-80 decoration-emerald-500/20 underline underline-offset-4">
+                         {t('notification.keepUpgrading')} 🏰
+                      </p>
+                   </div>
+                 ) : (
+                   /* WITHDRAWAL CONTENT */
+                   <div className="space-y-5">
+                      <div className="space-y-3 font-bold tracking-wide">
+                         <div className="flex items-center gap-4 text-blue-400">
+                            <span className="text-2xl">💸</span>
+                            <span className="text-[12px] flex-1">{successNotification.amount.toFixed(4)} TON {t('notification.sentToWallet')}</span>
+                         </div>
+                         
+                         {/* Transaction Preview Card */}
+                         <div className="bg-black/60 border border-white/5 p-4 rounded-lg relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 p-2 opacity-20"><span className="text-3xl">🔍</span></div>
+                            <div className="text-[9px] text-[#3b82f6] font-mono mb-2 border-b border-white/5 pb-1 flex justify-between">
+                              <span>tonscan.org</span>
+                              <span>{new Date().toLocaleTimeString()}</span>
+                            </div>
+                            <div className="text-[11px] text-white flex items-center justify-between">
+                               <span>{successNotification.txId} · Transaction</span>
+                               <span className="bg-[#10b981]/20 text-[#10b981] text-[7px] px-1.5 py-0.5 rounded border border-[#10b981]/30">Success</span>
+                            </div>
+                            <div className="text-[8px] text-gray-500 mt-1 leading-tight max-w-[200px]">
+                               Address {successNotification.address.substring(0, 8)}... sent {successNotification.net.toFixed(2)} TON to you.
+                            </div>
+                         </div>
+
+                         <div className="flex items-center gap-2 mt-2 px-1">
+                            <span className="text-blue-500 text-lg">🔗</span>
+                            <button className="text-[#3b82f6] hover:text-white transition-colors text-[9px] underline decoration-blue-500/40 underline-offset-4">
+                               {t('notification.viewTransaction')}
+                            </button>
+                         </div>
+                      </div>
+
+                      <p className="text-gray-500 text-[9px] font-bold text-center mt-4 tracking-widest uppercase">
+                         {t('notification.thankYou')} 🤖
+                      </p>
+                   </div>
+                 )}
+
+                 {/* Confirm Button */}
+                 <button 
+                   onClick={() => setSuccessNotification(null)}
+                   className={`w-full mt-8 py-4 text-[13px] font-black tracking-widest ${successNotification.type === 'deposit' ? 'bg-[#10b981] hover:bg-[#059669]' : 'bg-[#3b82f6] hover:bg-[#2563eb]'} text-black transition-all border-b-4 border-black/40 active:translate-y-1 active:border-b-0`}
+                 >
+                   OK
+                 </button>
+              </div>
+           </div>
         </div>
       )}
     </div>

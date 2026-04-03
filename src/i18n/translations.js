@@ -323,6 +323,18 @@ const translations = {
   'referral.network': { th: 'เครือข่ายของฉัน', en: 'MY NETWORK' },
   'referral.unclaimed': { th: 'ยอดรอถอน', en: 'UNCLAIMED REWARD' },
   'referral.claim': { th: 'กดรับรางวัล', en: 'CLAIM REWARD' },
+
+  // ==================== NOTIFICATIONS ====================
+  'notification.depositConfirmed': { th: 'การเติมเงินสำเร็จ!', en: 'Deposit Confirmed!' },
+  'notification.withdrawalApproved': { th: 'อนุมัติการถอนเงินแล้ว!', en: 'Withdrawal Approved!' },
+  'notification.addedToBalance': { th: 'ถูกเพิ่มเข้ายอดเงินของคุณแล้ว', en: 'has been added to your balance' },
+  'notification.sentToWallet': { th: 'ถูกส่งไปยังกระเป๋าเงินของคุณแล้ว', en: 'has been sent to your wallet' },
+  'notification.promoBonus': { th: 'โบนัสพิเศษ', en: 'Promo bonus' },
+  'notification.totalCredited': { th: 'ยอดรวมสุทธิ', en: 'Total credited' },
+  'notification.newBalance': { th: 'ยอดคงเหลือใหม่', en: 'New balance' },
+  'notification.viewTransaction': { th: 'ดูรายละเอียดธุรกรรม', en: 'View Transaction' },
+  'notification.keepUpgrading': { th: 'อัปเกรดหุ่นยนต์ของคุณต่อไป!', en: 'Keep upgrading your mechs!' },
+  'notification.thankYou': { th: 'ขอบคุณที่ร่วมสนุกกับ Pixel War!', en: 'Thank you for playing Pixel War!' },
 };
 
 export default translations;
