@@ -105,7 +105,7 @@ const WatermarkBg = () => (
   ></div>
 );
 
-export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPressStart, onLongPressEnd, gameBalance, setGameBalance, setDevBalance }) {
+export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPressStart, onLongPressEnd, gameBalance, setGameBalance, setDevBalance, socket }) {
   const { t } = useT();
   const [view, setView] = useState('lounge'); // 'lounge' | 'matchmaking' | 'battle' | 'result'
   const [mode, setMode] = useState('1v1'); // '1v1' | '3v3'
@@ -143,6 +143,31 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
   const battleStateRef = useRef({ player: [], enemy: [], step: 1 });
   const runningRef = useRef(false);
 
+  // 1. Socket Listener for Matchmaking
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('matchFound', (data) => {
+      // data: { opponent: { name, team } }
+      console.log(`[PVP] Match found! Opponent: ${data.opponent.name}`);
+      
+      // Convert opponent heroes to PVP-balanced combat stats
+      const oppTeam = data.opponent.team.map((hero, i) => toPvpCombatHero(hero, `e${i+1}`));
+      
+      setEnemyTeam(oppTeam);
+      battleStateRef.current.enemy = oppTeam;
+      
+      // We are in 'matchmaking' view, tell it to show 'found'
+      // This is handled by the MatchmakingView sub-component receiving updated enemyTeam?
+      // Actually, we'll use a global status or just let the sub-component listen.
+      // But MatchmakingView is internal, so we'll pass a 'found' trigger if needed.
+    });
+
+    return () => {
+      socket.off('matchFound');
+    };
+  }, [socket]);
+
   const startMatchmaking = (selectedMode) => {
     setMode(selectedMode);
     // Use the persistent squad for the picked mode
@@ -164,17 +189,10 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
       return toPvpCombatHero(hero, `p${i+1}`);
     });
 
-    // Generate Opponents based on Rarity Matching (also PVP-balanced)
-    const opponents = myTeam.map((h, i) => {
-      const matchingRarity = CHARACTERS.filter(c => c.rarity === h.rarity);
-      const enemy = matchingRarity[Math.floor(Math.random() * matchingRarity.length)];
-      return toPvpCombatHero(enemy, `e${i+1}`);
-    });
-
     setPlayerTeam(myTeam);
-    setEnemyTeam(opponents);
+    setEnemyTeam([]); // Clear previous
     setIsPicking(false);
-    battleStateRef.current = { player: myTeam, enemy: opponents, step: 1 };
+    battleStateRef.current = { player: myTeam, enemy: [], step: 1 };
     runningRef.current = false;
     setView('matchmaking');
   };
@@ -188,27 +206,12 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
     }
   };
 
-  const payAndFight = () => {
-    const fee = currentSettings.fee;
-    const devFee = currentSettings.devFee;
-
-    // Deduct fee from game balance
-    setGameBalance(prev => prev - fee);
-
-    // Add dev fee to dev balance
-    setDevBalance(prev => {
-      const newDevBalance = prev + devFee;
-      // Send notification (Simulated)
-      sendTelegramNotification('devFee', {
-        amount: devFee,
-        totalDevBalance: newDevBalance,
-        round: "PVP " + mode
-      });
-      return newDevBalance;
-    });
-
-    // Increment match count
-    setPvpStats(prev => ({ ...prev, count: Math.min(5, prev.count + 1) }));
+  const payAndFight = (finalEnemyTeam) => {
+    // Note: Fee was already deducted at start of searching!
+    // This just transitions to the actual battle view.
+    setEnemyTeam(finalEnemyTeam);
+    battleStateRef.current.enemy = finalEnemyTeam;
+    
     setBattleLogs(["Match starts!"]);
     setView('battle');
     setWinner(null);
@@ -328,10 +331,36 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
         const finalAliveE = nextEnemy.filter(e => e.currentHp > 0);
         if (finalAliveP.length === 0) {
           setWinner('enemy');
+          // LOSER pays the entry fee after match ends
+          setGameBalance(prev => prev - currentSettings.fee);
+
+          // Dev fee collected from the loser's entry
+          const devFee = currentSettings.devFee;
+          setDevBalance(prev => {
+            const next = prev + devFee;
+            sendTelegramNotification('devFee', {
+              amount: devFee,
+              totalDevBalance: next,
+              round: `PVP ${mode} (Defeat)`
+            });
+            return next;
+          });
         } else if (finalAliveE.length === 0) {
           setWinner('player');
-          // Add reward to gameBalance
+          // WINNER receives the prize into gameBalance
           setGameBalance(prev => prev + currentSettings.winnerPrize);
+
+          // Dev fee collected from the opponent's entry
+          const devFee = currentSettings.devFee;
+          setDevBalance(prev => {
+            const next = prev + devFee;
+            sendTelegramNotification('devFee', {
+              amount: devFee,
+              totalDevBalance: next,
+              round: `PVP ${mode} (Victory)`
+            });
+            return next;
+          });
         }
 
         setTimeout(() => setAnimState({}), 800);
@@ -345,7 +374,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
       clearTimeout(turnTimeout);
       runningRef.current = false;
     };
-  }, [view, winner, mode, currentSettings.winnerPrize, setGameBalance]);
+  }, [view, winner, mode, currentSettings.winnerPrize, currentSettings.fee, currentSettings.devFee, setGameBalance, setDevBalance]);
 
   if (view === 'lounge' && !isPicking) {
 
@@ -625,6 +654,9 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
         onConfirmFight={payAndFight}
         onBack={() => setView('lounge')}
         mode={mode}
+        socket={socket}
+        gameBalance={gameBalance}
+        setPvpStats={setPvpStats}
       />
     );
   }
@@ -781,29 +813,86 @@ const BattleCharacter = ({ hero, isLeft, animState }) => {
 // ====================================================================
 // Matchmaking View — Full Flow with Searching, Found, Timeout
 // ====================================================================
-const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFight, onBack, mode }) => {
+const MatchmakingView = ({ 
+  playerTeam, 
+  enemyTeam, 
+  currentSettings, 
+  onConfirmFight, 
+  onBack, 
+  mode, 
+  socket,
+  gameBalance,
+  setPvpStats
+}) => {
   const { t } = useT();
   const [matchStatus, setMatchStatus] = useState('confirm');
   const [countdown, setCountdown] = useState(60);
   const [showRules, setShowRules] = useState(false);
 
   const startSearching = () => {
+    // Fee is NOT deducted upfront — only the LOSER pays after the match ends
+    const fee = currentSettings.fee;
+
+    if (gameBalance < fee) return; // Safety: ensure player CAN pay if they lose
+
+    // JOIN QUEUE
+    if (socket) {
+      socket.emit('joinQueue', {
+        mode,
+        player: {
+          name: "Player",
+          team: playerTeam.map(({ ...rest }) => {
+            const { originalIdx: _, ...cleanHero } = rest;
+            return cleanHero;
+          })
+        }
+      });
+    }
+
     setMatchStatus('searching');
     setCountdown(60);
+    // Increment match quota
+    setPvpStats(prev => ({ ...prev, count: Math.min(5, prev.count + 1) }));
   };
 
-  const handleRefund = () => {
-    console.log("คืนเงิน TON กลับสู่กระเป๋าผู้เล่น...");
-  };
+  const handleRefund = React.useCallback(() => {
+    // No fee was deducted upfront, so only refund quota and leave queue
+    setPvpStats(prev => ({ ...prev, count: Math.max(0, prev.count - 1) }));
+
+    if (socket) {
+      socket.emit('leaveQueue', { mode });
+    }
+  }, [socket, mode, setPvpStats]);
 
   const cancelMatchmaking = () => {
     setMatchStatus('confirm');
     handleRefund();
   };
 
+  // Listen for matchFound inside MatchmakingView to transition UI status
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleMatch = () => {
+      setMatchStatus('found');
+    };
+
+    socket.on('matchFound', handleMatch);
+    return () => socket.off('matchFound', handleMatch);
+  }, [socket]);
+
+  // Handle battle transition after 'found' animation
+  useEffect(() => {
+    if (matchStatus === 'found' && enemyTeam.length > 0) {
+      const timer = setTimeout(() => {
+        onConfirmFight(enemyTeam);
+      }, 3000); // 3s of "Match Found" drama
+      return () => clearTimeout(timer);
+    }
+  }, [matchStatus, enemyTeam, onConfirmFight]);
+
   useEffect(() => {
     let timer;
-    let fakeBackendMatch;
 
     if (matchStatus === 'searching') {
       timer = setInterval(() => {
@@ -818,20 +907,11 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
         });
       }, 1000);
 
-      // Simulated backend match (3-10s). Remove when connecting real API.
-      const randomFindTime = Math.floor(Math.random() * 8000) + 3000;
-      fakeBackendMatch = setTimeout(() => {
-        clearInterval(timer);
-        setMatchStatus('found');
-        setTimeout(() => onConfirmFight(), 2000);
-      }, randomFindTime);
-
       return () => {
         clearInterval(timer);
-        clearTimeout(fakeBackendMatch);
       };
     }
-  }, [matchStatus, onConfirmFight]);
+  }, [matchStatus, currentSettings.fee, handleRefund]);
 
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
@@ -846,25 +926,25 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
         {matchStatus === 'confirm' && (
           <div className="w-full flex flex-col items-center animate-in fade-in duration-300">
             <h2 className="text-[#f1c40f] text-xl font-black mb-5 tracking-[0.15em] drop-shadow-[0_2px_8px_rgba(241,196,15,0.4)] italic flex items-center gap-2">
-              CONFIRM MATCH
+              {t('pvp.confirmMatch')}
               <button 
                 onClick={() => setShowRules(true)} 
                 className="w-5 h-5 bg-[#2c303c] border border-gray-600 rounded-sm text-[10px] flex items-center justify-center hover:bg-gray-700 transition-colors not-italic"
-                title="Read Rules"
+                title={t('pvp.rules')}
               >?</button>
             </h2>
 
             <div className="w-full bg-[#0f111a]/90 border-2 border-[#2c303c] p-4 mb-5 space-y-2.5">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-400 font-bold tracking-wide">ENTRY FEE</span>
+                <span className="text-gray-400 font-bold tracking-wide uppercase">{t('pvp.entryFeeLabel')}</span>
                 <span className="text-blue-300 font-mono font-bold">{currentSettings.fee} <span className="text-[10px] text-gray-500">TON</span></span>
               </div>
               <div className="flex justify-between items-center text-xs border-b border-gray-800 pb-2.5">
-                <span className="text-gray-400 font-bold tracking-wide">PRIZE POOL</span>
+                <span className="text-gray-400 font-bold tracking-wide uppercase">{t('pvp.prizePoolLabel')}</span>
                 <span className="text-[#f1c40f] font-mono font-bold">{currentSettings.pool} <span className="text-[10px] text-gray-500">TON</span></span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-red-500 font-bold tracking-wide">DEV FEE (10%)</span>
+                <span className="text-red-500 font-bold tracking-wide uppercase">{t('pvp.devFeeLabel')}</span>
                 <span className="text-red-500 font-mono font-bold">-{currentSettings.devFee} <span className="text-[10px] text-gray-500">TON</span></span>
               </div>
             </div>
@@ -872,7 +952,7 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
             <div className="flex w-full justify-between items-center bg-[#0f111a]/80 border-2 border-[#2c303c] p-4 mb-6 relative">
               <div className="absolute top-0 bottom-0 left-1/2 w-[1px] bg-white/10 -translate-x-1/2"></div>
               <div className="flex flex-col items-center flex-1">
-                <span className="text-blue-400 text-[10px] mb-2 font-black tracking-widest">PLAYER</span>
+                <span className="text-blue-400 text-[10px] mb-2 font-black tracking-widest uppercase">{t('pvp.player')}</span>
                 <div className="flex gap-1">
                   {playerTeam.map(h => (
                     <div key={h.battleId} className="w-10 h-10 overflow-hidden border-2 border-gray-700 hover:border-blue-400 transition-all" style={{backgroundColor: h.imageColor}}>
@@ -882,10 +962,10 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
                 </div>
               </div>
               <div className="w-12 h-12 flex items-center justify-center bg-black/90 rounded-full border-2 border-red-500/40 z-10 mx-2 shadow-[0_0_12px_rgba(239,68,68,0.3)]">
-                <span className="text-red-500 font-black italic text-base">VS</span>
+                <span className="text-red-500 font-black italic text-base uppercase">{t('pvp.vs')}</span>
               </div>
               <div className="flex flex-col items-center flex-1">
-                <span className="text-red-400 text-[10px] mb-2 font-black tracking-widest">OPPONENT</span>
+                <span className="text-red-400 text-[10px] mb-2 font-black tracking-widest uppercase">{t('pvp.enemy')}</span>
                 <div className="flex gap-1">
                   {enemyTeam.map(h => (
                     <div key={h.battleId} className="w-10 h-10 overflow-hidden border-2 border-gray-700 grayscale opacity-60" style={{backgroundColor: h.imageColor}}>
@@ -922,8 +1002,8 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
         {/* ───── SEARCHING SCREEN ───── */}
         {matchStatus === 'searching' && (
           <div className="w-full flex flex-col items-center justify-center animate-in fade-in duration-300 py-8">
-            <h2 className="text-2xl font-black text-blue-400 animate-pulse tracking-[0.1em] mb-2 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)]">
-              SEARCHING...
+            <h2 className="text-2xl font-black text-blue-400 animate-pulse tracking-[0.1em] mb-2 drop-shadow-[0_0_10px_rgba(59,130,246,0.5)] uppercase">
+              {t('pvp.searching')}
             </h2>
             <p className="text-gray-500 text-[10px] mb-8 tracking-wider font-bold">
               {t('pvp.searchingPlayers')}
@@ -960,7 +1040,7 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
               onClick={cancelMatchmaking}
               className="text-red-400 hover:text-red-300 underline text-[10px] font-bold tracking-wider transition-colors"
             >
-              {t('pvp.cancelSearch')} ({t('pvp.refund')} {currentSettings.fee} TON)
+              {t('pvp.cancelSearch')} ({t('pvp.refund').replace('{amount}', currentSettings.fee)})
             </button>
           </div>
         )}
@@ -970,12 +1050,12 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
           <div className="w-full flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-300 py-12">
             <div className="relative">
               <div className="absolute inset-0 bg-green-500/20 blur-3xl rounded-full animate-pulse"></div>
-              <h2 className="text-3xl font-black text-green-400 drop-shadow-[0_0_15px_rgba(34,197,94,0.6)] tracking-[0.15em] relative z-10 mb-3">
-                MATCH FOUND!
+              <h2 className="text-3xl font-black text-green-400 drop-shadow-[0_0_15px_rgba(34,197,94,0.6)] tracking-[0.15em] relative z-10 mb-3 uppercase">
+                {t('pvp.matchFound')}
               </h2>
             </div>
             <p className="text-white/80 text-xs font-bold tracking-wider animate-pulse">
-              <span className="text-gray-500 text-[8px] font-bold uppercase tracking-[0.2em] animate-pulse">⏰ Reset every 2 hrs</span> เตรียมตัวเข้าสู่สมรภูมิ...
+              <span className="text-gray-500 text-[8px] font-bold uppercase tracking-[0.2em] animate-pulse">⏰ {t('pvp.resetEvery2h')}</span> {t('pvp.preparing')}
             </p>
 
             <div className="flex items-center gap-4 mt-8">
@@ -1001,15 +1081,15 @@ const MatchmakingView = ({ playerTeam, enemyTeam, currentSettings, onConfirmFigh
         {/* ───── TIMEOUT SCREEN ───── */}
         {matchStatus === 'timeout' && (
           <div className="w-full flex flex-col items-center justify-center animate-in fade-in duration-300 py-12">
-            <h2 className="text-2xl font-black text-gray-400 tracking-[0.1em] mb-3">TIMEOUT</h2>
-            <p className="text-center text-gray-400 text-xs leading-relaxed mb-2 font-bold">
-              ไม่พบผู้เล่นในขณะนี้
+            <h2 className="text-2xl font-black text-gray-400 tracking-[0.1em] mb-3 uppercase">{t('pvp.defeatTitle')}</h2>
+            <p className="text-center text-gray-400 text-xs leading-relaxed mb-6 font-bold">
+              {t('pvp.noHeroes')}
             </p>
             
             <div className="bg-[#0f111a]/90 border-2 border-[#2ecc71]/40 px-5 py-3 mb-8 flex items-center gap-3">
               <span className="text-lg">💸</span>
               <div>
-                <p className="text-[#2ecc71] text-[10px] font-black tracking-widest">REFUND PROCESSED</p>
+                <p className="text-[#2ecc71] text-[10px] font-black tracking-widest uppercase">REFUND PROCESSED</p>
                 <p className="text-white text-xs font-mono font-bold">{currentSettings.fee} TON → {t('pvp.yourWallet')}</p>
               </div>
             </div>
@@ -1062,7 +1142,7 @@ const PvpRulesModal = ({ mode, onClose }) => {
         {/* Title */}
         <div className="text-center mb-6 relative">
           <h2 className="text-yellow-400 text-lg font-black italic tracking-widest drop-shadow-[0_2px_10px_rgba(250,204,21,0.5)]">
-            {is3v3 ? t('pvp.rulesTitle3v3', { defaultValue: 'กติกาการต่อสู้ 3 VS 3' }) : t('pvp.rulesTitle1v1', { defaultValue: 'กติกาการต่อสู้ 1 VS 1' })}
+            {is3v3 ? t('pvp.rulesTitle3v3') : t('pvp.rulesTitle1v1')}
           </h2>
           <div className="h-px w-full bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent mt-2"></div>
         </div>

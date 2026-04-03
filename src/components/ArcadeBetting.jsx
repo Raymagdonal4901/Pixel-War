@@ -143,7 +143,7 @@ const UpcomingCard = ({ match }) => (
 // ═══════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════
-const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, setDevBalance, triggerModal, socket, poolSyncData }) => {
+const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, executeRealTonPayment, socket, poolSyncData }) => {
   const { t } = useT();
   const [gameState, setGameState] = useState('idle');
   const [matchInfo, setMatchInfo] = useState(() => getCurrentMatchRound());
@@ -239,13 +239,13 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, set
     const tp = pool.red + pool.blue;
     const df = tp * DEV_FEE;
     
-    // Distribute Dev Fee immediately when battle ends locally
+    // Distribute Dev Fee tracking (it was already collected real-time via executeRealTonPayment)
     setDevBalance(prev => {
       const newBalance = prev + df;
       sendTelegramNotification('devFee', {
         amount: df,
         totalDevBalance: newBalance,
-        round: roundCounter
+        round: `Arcade #${roundCounter}`
       });
       return newBalance;
     });
@@ -285,25 +285,20 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, set
     return () => clearInterval(timer);
   }, [gameState, lockTimer, simulateBattle]);
 
-  const handleBet = (side) => {
+  const handleBet = async (side) => {
     if (limitReached || selectedBet || (gameState !== 'idle' && gameState !== 'betting')) return;
     
-    if (gameBalance < BET_AMOUNT) {
-      if (triggerModal) {
-        triggerModal({
-          type: 'alert',
-          title: 'INSUFFICIENT FUNDS',
-          message: `You need at least ${BET_AMOUNT} TON to place a bet. Please deposit more funds.`,
-          confirmText: 'OK'
-        });
-      }
-      return;
-    }
+    // Real TON Payment
+    const success = await executeRealTonPayment(BET_AMOUNT, `Arcade Bet: ${side.toUpperCase()}`, true);
+    if (!success) return;
 
-    setGameBalance(prev => prev - BET_AMOUNT);
     setSelectedBet(side);
     setPvpStats(prev => ({ ...prev, count: Math.min(5,prev.count+1) }));
-    setPool(prev => ({ ...prev, [side]: prev[side]+BET_AMOUNT }));
+    
+    // Emit to server so others see the pool increase (server handles its own pool state)
+    if (socket) {
+      socket.emit('placeBet', { side, amount: BET_AMOUNT });
+    }
 
     if (gameState === 'idle') {
       setGameState('betting');

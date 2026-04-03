@@ -382,7 +382,7 @@ function App() {
   };
 
   // Real Blockchain Payment Helper for GACHA
-  const executeRealTonPayment = async (amount, label) => {
+  const executeRealTonPayment = async (amount, label, suppressNotification = false) => {
     if (!wallet) {
       triggerModal({
         type: 'alert',
@@ -414,11 +414,13 @@ function App() {
         // Log real telegram notification for dev to see money coming into real wallet
         setDevBalance(prev => {
           const newBalance = prev + amount;
-          sendTelegramNotification('devFee', {
-            amount: amount,
-            totalDevBalance: newBalance,
-            round: `Real Payment: ${label}`
-          });
+          if (!suppressNotification) {
+            sendTelegramNotification('devFee', {
+              amount: amount,
+              totalDevBalance: newBalance,
+              round: `Real Payment: ${label}`
+            });
+          }
           return newBalance;
         });
         return true;
@@ -716,7 +718,7 @@ function App() {
             <div className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-400/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
               <span className="flex items-center justify-center">
-                <span className="text-[8px] drop-shadow-[0_0_2px_#2ecc71]">💰</span>
+                <IconTon className="w-2.5 h-2.5 drop-shadow-[0_0_2px_#2ecc71]" />
               </span>
               <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)} <span className="text-[5px]">TON</span></span>
             </div>
@@ -1633,12 +1635,13 @@ function App() {
         {/* PVP Arena Tab */}
         {activeTab === 'rank' && (
           <PvpArena 
-            userHeroes={userHeroes} 
-            pvpStats={pvpStats} 
-            setPvpStats={setPvpStats} 
+            userHeroes={userHeroes}
+            pvpStats={pvpStats}
+            setPvpStats={setPvpStats}
             gameBalance={gameBalance}
             setGameBalance={setGameBalance}
             setDevBalance={setDevBalance}
+            socket={socketRef.current}
             onLongPressStart={handlePointerDown}
             onLongPressEnd={handlePointerUp}
           />
@@ -1647,11 +1650,12 @@ function App() {
         {/* ARCADE TAB */}
         {activeTab === 'arcade' && (
           <ArcadeBetting 
-            pvpStats={pvpStats} 
-            setPvpStats={setPvpStats} 
-            gameBalance={gameBalance} 
+            pvpStats={pvpStats}
+            setPvpStats={setPvpStats}
+            gameBalance={gameBalance}
             setGameBalance={setGameBalance}
-            setDevBalance={setDevBalance} 
+            setDevBalance={setDevBalance}
+            executeRealTonPayment={executeRealTonPayment}
             triggerModal={triggerModal}
             socket={socketRef.current}
             poolSyncData={poolData}

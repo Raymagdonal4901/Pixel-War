@@ -46,6 +46,7 @@ const getNextEvenHourMs = () => {
 
 let matchStatus = 'OPEN'; // 'OPEN' or 'LOCKED'
 let connectedCount = 0;
+let matchmakingQueues = { '1v1': [], '3v3': [] };
 
 const updateClock = () => {
     const msUntil = getNextEvenHourMs();
@@ -125,8 +126,46 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('joinQueue', (data) => {
+    // data: { mode: '1v1' | '3v3', player: { name, team } }
+    const { mode, player } = data;
+    if (!mode || !player) return;
+
+    console.log(`[PVP] ${socket.id} (${player.name}) joined ${mode} queue.`);
+
+    const queue = matchmakingQueues[mode];
+    // Check if someone else is waiting
+    if (queue.length > 0) {
+      const opponent = queue.shift();
+      if (opponent.socket.id === socket.id) {
+          queue.push({ socket, player }); // Re-add if same person somehow
+          return;
+      }
+
+      console.log(`[PVP] Match found! ${socket.id} vs ${opponent.socket.id}`);
+
+      // Notify both
+      socket.emit('matchFound', { opponent: opponent.player });
+      opponent.socket.emit('matchFound', { opponent: player });
+    } else {
+      // Add to queue
+      matchmakingQueues[mode].push({ socket, player });
+    }
+  });
+
+  socket.on('leaveQueue', (data) => {
+    const { mode } = data;
+    if (!mode) return;
+    matchmakingQueues[mode] = matchmakingQueues[mode].filter(q => q.socket.id !== socket.id);
+    console.log(`[PVP] ${socket.id} left ${mode} queue.`);
+  });
+
   socket.on('disconnect', () => {
     connectedCount = Math.max(0, connectedCount - 1);
+    // Remove from all queues
+    Object.keys(matchmakingQueues).forEach(mode => {
+      matchmakingQueues[mode] = matchmakingQueues[mode].filter(q => q.socket.id !== socket.id);
+    });
     console.log(`[Socket] Player disconnected: ${socket.id} (Total: ${connectedCount})`);
   });
 });

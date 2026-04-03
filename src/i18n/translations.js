@@ -160,6 +160,8 @@ const translations = {
   'welcome.received': { th: 'คุณได้รับ: 1 กาชาฮีโร่ฟรี!', en: 'You received: 1 Free Hero Gacha!' },
   'welcome.claim': { th: 'รับเลย!', en: 'CLAIM NOW!' },
   'players.online': { th: 'ออนไลน์', en: 'ONLINE' },
+  'pvp.cancelSearch': { th: 'ยกเลิกการค้นหา', en: 'CANCEL SEARCH' },
+  'pvp.refund': { th: 'คืนเงิน {amount} TON', en: 'REFUND {amount} TON' },
 
   // --- Modal General ---
   'modal.understood': { th: 'รับทราบ', en: 'UNDERSTOOD' },
@@ -238,6 +240,13 @@ const translations = {
   'pvp.rule4Desc1v1': { th: 'หากระบบไม่พบคู่ต่อสู้ภายใน 60 วินาที ระบบจะทำการคืนเงินเข้ากระเป๋าของคุณเต็มจำนวน', en: 'If no opponent is found within 60 seconds, a full refund will be issued to your wallet' },
   'pvp.rule4Desc3v3': { th: 'จำเป็นต้องมี NanoTON ในกระเป๋าเป็นค่าแก๊ส. กรุณาอย่าปิดแอปหรือกดออกขณะ Searching เพื่อป้องกันข้อผิดพลาดในการคืนเงิน', en: 'Must have NanoTON in wallet for gas. Do not close or exit the app while Searching to prevent refund errors' },
   'pvp.rule1Title3v3': { th: 'เงื่อนไขการเข้าร่วมและการจับทีม', en: 'Entry Conditions & Team Matching' },
+  'pvp.yourWallet': { th: 'กระเป๋าเงินของคุณ', en: 'your wallet' },
+  'pvp.backToHome': { th: 'กลับหน้าหลัก', en: 'Back to Home' },
+  'pvp.searchAgain': { th: 'ค้นหาอีกครั้ง', en: 'Search Again' },
+  'pvp.quickRule1v1': { th: 'หุ่นยนต์ระดับเดียวกัน | ค่าเข้า 1 TON | ชนะรับ 1.8 TON', en: 'Same Rarity | Entry 1 TON | Winner 1.8 TON' },
+  'pvp.quickRule3v3': { th: 'ทีม 3 ตัว | ค่าเข้า 3 TON | ชนะรับ 5.5 TON', en: '3vs3 Team | Entry 3 TON | Winner 5.5 TON' },
+  'pvp.rulesTitle3v3': { th: 'กติกาการต่อสู้ 3 VS 3', en: '3 VS 3 Battle Rules' },
+  'pvp.rulesTitle1v1': { th: 'กติกาการต่อสู้ 1 VS 1', en: '1 VS 1 Battle Rules' },
 
   // ==================== ARCADE BETTING ====================
   'arcade.insertCoin': { th: '🕹️ เริ่มเกม', en: '🕹️ INSERT COIN' },
