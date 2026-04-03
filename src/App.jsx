@@ -2440,7 +2440,10 @@ function App() {
 
       {/* Bottom Navigation Navbar */}
       <nav className="theme-nav-bg fixed bottom-0 left-0 right-0 z-50 py-1 max-w-md mx-auto shadow-[0_-5px_15px_rgba(0,0,0,0.5)]">
-        <ul className="flex flex-nowrap overflow-x-auto no-scrollbar items-center h-[72px] px-2 gap-1.5 snap-x">
+        <ul 
+          className="flex flex-nowrap overflow-x-auto overflow-y-hidden touch-pan-x hide-scrollbar items-center h-[72px] px-2 gap-1.5 snap-x snap-mandatory"
+          style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
           {[
             { id: 'heroes', icon: IconHeroes, label: t('nav.heroes'), badge: heroCount > 0 ? heroCount : null },
             { id: 'gacha', icon: IconGacha, label: t('nav.gacha') },
