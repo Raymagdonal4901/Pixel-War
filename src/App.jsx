@@ -147,10 +147,21 @@ function App() {
 
     // Register player with backend on connect
     socketRef.current.on('connect', () => {
+      const currentWallet = localStorage.getItem('ton_wallet_address'); // or fetch from state if sync is immediate
       socketRef.current.emit('registerPlayer', {
         name: localStorage.getItem('pixel_war_player_name') || 'Player1',
-        wallet: null // Will be updated when wallet connects
+        wallet: currentWallet
       });
+    });
+
+    // Handle persistent status from DB
+    socketRef.current.on('playerStatus', (data) => {
+      if (data.balance !== undefined) {
+        setGameBalance(data.balance);
+      }
+      if (data.pvpStats) {
+        setPvpStats(data.pvpStats);
+      }
     });
 
     return () => {
@@ -322,11 +333,19 @@ function App() {
 
   // Sync wallet address to backend when wallet connects/disconnects
   useEffect(() => {
-    if (socketRef.current?.connected && wallet) {
-      const addr = wallet.account?.address || null;
-      socketRef.current.emit('updatePlayer', { wallet: addr });
+    const addr = wallet?.account?.address || null;
+    if (addr) {
+      localStorage.setItem('ton_wallet_address', addr);
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('registerPlayer', {
+          name: playerName,
+          wallet: addr
+        });
+      }
+    } else {
+      localStorage.removeItem('ton_wallet_address');
     }
-  }, [wallet]);
+  }, [wallet, playerName]);
 
   // Real-time Balance Fetching
   const fetchBalance = useMemo(() => async () => {

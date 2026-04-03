@@ -5,6 +5,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 
 dotenv.config();
+import connectDB from './db.js';
+import Player from './models/Player.js';
+import MatchHistory from './models/MatchHistory.js';
+
+// Connect to MongoDB
+connectDB();
 
 const app = express();
 app.use(cors());
@@ -106,20 +112,55 @@ io.on('connection', (socket) => {
   // ═══════════════════════════════════════════════════════════
   // Player Registration — frontend sends player info on connect
   // ═══════════════════════════════════════════════════════════
-  socket.on('registerPlayer', (data) => {
-    // data: { name: string, wallet?: string }
-    const playerInfo = {
-      socketId: socket.id,
-      name: data?.name || 'Unknown',
-      wallet: data?.wallet ? `${data.wallet.slice(0, 4)}...${data.wallet.slice(-4)}` : null,
-      joinedAt: Date.now()
-    };
+  socket.on('registerPlayer', async (data) => {
+    // data: { name: string, wallet: string }
+    const walletAddr = data?.wallet;
+    if (!walletAddr) return;
 
-    onlinePlayers.set(socket.id, playerInfo);
-    console.log(`[Register] ${playerInfo.name} (${socket.id}) registered. Online: ${onlinePlayers.size}`);
+    try {
+      // Find or Create Player in MongoDB
+      let player = await Player.findOne({ wallet: walletAddr });
+      
+      if (player) {
+        // Update name if changed
+        if (data.name && player.name !== data.name) {
+          player.name = data.name;
+        }
+        player.lastSeen = new Date();
+        await player.save();
+      } else {
+        player = await Player.create({
+          name: data.name || 'Player1',
+          wallet: walletAddr,
+          gameBalance: 0, // Initial balance
+          lastSeen: new Date()
+        });
+      }
 
-    // Broadcast updated player list to all clients
-    broadcastOnlinePlayers();
+      const playerInfo = {
+        socketId: socket.id,
+        name: player.name,
+        wallet: `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}`,
+        fullWallet: player.wallet, // Keep full for internal logic
+        joinedAt: Date.now(),
+        dbId: player._id
+      };
+
+      onlinePlayers.set(socket.id, playerInfo);
+      console.log(`[Register] ${playerInfo.name} (${socket.id}) registered from DB. Online: ${onlinePlayers.size}`);
+
+      // Broadcast updated player list
+      broadcastOnlinePlayers();
+
+      // Send player's DB status back to them
+      socket.emit('playerStatus', {
+        balance: player.gameBalance,
+        pvpStats: player.pvpStats
+      });
+
+    } catch (err) {
+      console.error(`❌ DB Error in registerPlayer: ${err.message}`);
+    }
   });
 
   // Send initial state immediately
