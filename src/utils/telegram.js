@@ -37,6 +37,19 @@ Keep upgrading your mechs! 🏰
 
 Thank you for playing Pixel War! 🤖
     `.trim();
+  } else if (type === 'devFee') {
+    const devWallet = import.meta.env.VITE_DEV_WALLET_ADDRESS || 'UQBc7X...P2p';
+    message = `
+<b>🔥 Dev Fee Collected!</b>
+
+📈 <b>+${data.amount.toFixed(4)} TON</b> added to Developer Balance.
+🎮 Source: Arcade Betting Match #${data.round}
+
+🏦 <b>Destination Wallet:</b>
+<code>${devWallet}</code>
+
+💵 <b>Total Accrued: ${data.totalDevBalance.toFixed(4)} TON</b>
+    `.trim();
   }
 
   try {

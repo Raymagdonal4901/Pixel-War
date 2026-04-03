@@ -186,6 +186,10 @@ function App() {
     const saved = localStorage.getItem('pixel_war_game_balance');
     return saved ? parseFloat(saved) : 0;
   });
+  const [devBalance, setDevBalance] = useState(() => {
+    const saved = localStorage.getItem('pixel_war_dev_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
 
@@ -194,10 +198,14 @@ function App() {
     localStorage.removeItem('pixel_war_balance');
   }, []);
 
-  // Persist gameBalance
+  // Persist gameBalance and devBalance
   useEffect(() => {
     localStorage.setItem('pixel_war_game_balance', gameBalance.toString());
   }, [gameBalance]);
+
+  useEffect(() => {
+    localStorage.setItem('pixel_war_dev_balance', devBalance.toString());
+  }, [devBalance]);
 
   // Custom Themed Modal System
   const [successNotification, setSuccessNotification] = useState(null);
@@ -355,8 +363,53 @@ function App() {
     }
   }, [wallet, welcomeHero, pullMultiple]);
 
-  // Generic Blockchain Payment Helper
+  // Generic Internal Payment Helper (Deducts from gameBalance, adds to devBalance)
   const executeGamePayment = async (amount, label) => {
+    // 1. Check if player has enough virtual balance
+    if (gameBalance < amount) {
+      triggerModal({
+        type: 'alert',
+        title: 'INSUFFICIENT FUNDS',
+        message: `You need at least ${amount.toFixed(2)} TON in your virtual balance to perform this action.`,
+        confirmText: 'OK'
+      });
+      return false;
+    }
+
+    setIsProcessingPayment(true);
+    setPaymentError(null);
+
+    try {
+      console.log(`Processing Internal Payment: ${label || 'Transaction'}...`);
+      // Simulate slight delay for transaction feel
+      await new Promise(resolve => setTimeout(resolve, 600));
+
+      // 2. Deduct from Player
+      setGameBalance(prev => prev - amount);
+      
+      // 3. Add to Dev Balance tracking and notify
+      setDevBalance(prev => {
+        const newBalance = prev + amount;
+        sendTelegramNotification('devFee', {
+          amount: amount,
+          totalDevBalance: newBalance,
+          round: label || 'Game Action'
+        });
+        return newBalance;
+      });
+
+      return true;
+    } catch (e) {
+      console.error("Payment failed:", e);
+      setPaymentError("Internal payment failed.");
+      return false;
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  // Real Blockchain Payment Helper for GACHA
+  const executeRealTonPayment = async (amount, label) => {
     if (!wallet) {
       triggerModal({
         type: 'alert',
@@ -371,7 +424,7 @@ function App() {
     setPaymentError(null);
 
     try {
-      console.log(`Starting ${label || 'Transaction'}...`);
+      console.log(`Starting Blockchain Transaction: ${label || 'Transaction'}...`);
       const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [
@@ -385,14 +438,22 @@ function App() {
       const result = await tonConnectUI.sendTransaction(transaction);
       
       if (result) {
-        // Refresh balance after successful transaction
-        setTimeout(fetchBalance, 2000);
+        // Log real telegram notification for dev to see money coming into real wallet
+        setDevBalance(prev => {
+          const newBalance = prev + amount;
+          sendTelegramNotification('devFee', {
+            amount: amount,
+            totalDevBalance: newBalance,
+            round: `Real Payment: ${label}`
+          });
+          return newBalance;
+        });
         return true;
       }
       return false;
     } catch (e) {
-      console.error("Payment failed:", e);
-      setPaymentError(e.message || "Transaction cancelled or failed.");
+      console.error("Blockchain Payment failed:", e);
+      setPaymentError("Transaction cancelled or failed.");
       return false;
     } finally {
       setIsProcessingPayment(false);
@@ -466,6 +527,7 @@ function App() {
         
         // Reset States
         setGameBalance(0);
+        setDevBalance(0);
         setPlayerName('Player1');
         setPvpStats({ count: 0, lastResetDayId: Math.floor(Date.now() / (2 * 3600 * 1000)) });
         resetReferrals();
@@ -613,7 +675,7 @@ function App() {
     }
 
     // Await Real Blockchain Payment
-    const success = await executeGamePayment(GACHA_FEE_TON * count, `Gacha x${count}`);
+    const success = await executeRealTonPayment(GACHA_FEE_TON * count, `Gacha x${count}`);
     if (!success) return;
 
     setIsPulling(true);
@@ -1563,7 +1625,14 @@ function App() {
 
         {/* ARCADE TAB */}
         {activeTab === 'arcade' && (
-          <ArcadeBetting pvpStats={pvpStats} setPvpStats={setPvpStats} />
+          <ArcadeBetting 
+            pvpStats={pvpStats} 
+            setPvpStats={setPvpStats} 
+            gameBalance={gameBalance}
+            setGameBalance={setGameBalance}
+            setDevBalance={setDevBalance}
+            triggerModal={triggerModal}
+          />
         )}
 
         {/* EARN / WITHDRAW TAB */}

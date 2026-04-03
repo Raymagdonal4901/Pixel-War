@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CHARACTERS } from '../data/characters';
 import { useT } from '../i18n/LanguageContext';
+import { sendTelegramNotification } from '../utils/telegram';
+import { io } from 'socket.io-client';
+
+const socket = io("http://localhost:3001");
 
 // ═══════════════════════════════════════════
 // Constants
@@ -142,12 +146,12 @@ const UpcomingCard = ({ match }) => (
 // ═══════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════
-const ArcadeBetting = ({ pvpStats, setPvpStats }) => {
+const ArcadeBetting = ({ pvpStats, setPvpStats, gameBalance, setGameBalance, setDevBalance, triggerModal }) => {
   const { t } = useT();
   const [gameState, setGameState] = useState('idle');
   const [matchInfo, setMatchInfo] = useState(() => getCurrentMatchRound());
   const [lockTimer, setLockTimer] = useState(LOCK_COUNTDOWN);
-  const [currentRoundKey, setCurrentRoundKey] = useState(() => getCurrentMatchRound().startHour);
+  // Removed unused currentRoundKey
   const [robots, setRobots] = useState({ red: null, blue: null });
   const [selectedBet, setSelectedBet] = useState(null);
   const [winner, setWinner] = useState(null);
@@ -156,7 +160,6 @@ const ArcadeBetting = ({ pvpStats, setPvpStats }) => {
   const [claimed, setClaimed] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [pool, setPool] = useState({ red: 0, blue: 0 });
-  const [fakeBets, setFakeBets] = useState([]);
   const [upcomingMatches, setUpcomingMatches] = useState([]);
   const [matchHistory, setMatchHistory] = useState([
     { round: 98, winner: 'BLUE', payout: 8.5, totalPool: 42, timestamp: Date.now()-300000 },
@@ -192,70 +195,56 @@ const ArcadeBetting = ({ pvpStats, setPvpStats }) => {
     ]);
   }, []);
 
-  // Real-time clock tick (every second)
+  // Socket Connection and State Sync
   useEffect(() => {
-    const interval = setInterval(() => setMatchInfo(getCurrentMatchRound()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const handleSync = (data) => {
+      setPool(data.pool);
+      // Sync clock
+      setMatchInfo(prev => ({
+        ...prev,
+        secondsUntilLock: data.status === 'OPEN' ? data.clock : 0,
+        status: data.status
+      }));
 
-  // Auto-lock when real time runs out
-  useEffect(() => {
-    if (matchInfo.status === 'LOCKED' && (gameState === 'idle' || gameState === 'betting')) {
-      setGameState('locking');
-      setLockTimer(LOCK_COUNTDOWN);
-    }
-  }, [matchInfo.status, gameState]);
+      // Handle locking dynamically from server
+      if (data.status === 'LOCKED' && (gameState === 'idle' || gameState === 'betting')) {
+        setGameState('locking');
+        setLockTimer(data.clock);
+      } else if (data.status === 'OPEN' && gameState === 'result') {
+        const info = getCurrentMatchRound();
+        setRobots(generateRobotPair());
+        setUpcomingMatches([
+          { robots: generateRobotPair(), time: info.upcomingRounds[0] },
+          { robots: generateRobotPair(), time: info.upcomingRounds[1] },
+        ]);
+        setGameState('idle');
+        setSelectedBet(null);
+        setWinner(null);
+        setBattleFX(null);
+        setShowResultModal(false);
+        setClaimed(false);
+      }
+    };
 
-  // Auto-new-round when 2h window changes
-  useEffect(() => {
-    if (matchInfo.startHour !== currentRoundKey && (gameState === 'idle' || gameState === 'result')) {
-      setCurrentRoundKey(matchInfo.startHour);
-      const info = getCurrentMatchRound();
-      setRobots(generateRobotPair());
-      setPool({ red: SEED_AMOUNT, blue: SEED_AMOUNT });
-      setUpcomingMatches([
-        { robots: generateRobotPair(), time: info.upcomingRounds[0] },
-        { robots: generateRobotPair(), time: info.upcomingRounds[1] },
-      ]);
-      setFakeBets([]); setGameState('idle');
-      setSelectedBet(null); setWinner(null); setBattleFX(null);
-      setShowResultModal(false); setClaimed(false);
-    }
-  }, [matchInfo.startHour, currentRoundKey, gameState]);
-
-  // Fake bettors
-  useEffect(() => {
-    if (gameState !== 'betting') return;
-    let betId = 100;
-    const interval = setInterval(() => {
-      const side = Math.random() > 0.45 ? 'red' : 'blue';
-      const amount = [1,1,1,2,2,3][Math.floor(Math.random()*6)];
-      const user = `Bot_${String.fromCharCode(65+Math.floor(Math.random()*26))}${Math.floor(Math.random()*99)}`;
-      setPool(prev => ({ ...prev, [side]: prev[side]+amount }));
-      setFakeBets(prev => [...prev, { id: betId++, userId: user, side: side.toUpperCase(), amount }]);
-    }, 800 + Math.random()*1200);
-    return () => clearInterval(interval);
+    socket.on('poolSync', handleSync);
+    return () => socket.off('poolSync', handleSync);
   }, [gameState]);
 
   const calculateAndDistributeRewards = useCallback((matchResult) => {
-    // Build bets array (bots + player, NOT including seed)
-    const allBets = [...fakeBets];
-    if (selectedBet) allBets.push({ id:0, userId:'Player1 (YOU)', side: selectedBet.toUpperCase(), amount: BET_AMOUNT });
-    let tR=0, tB=0;
-    allBets.forEach(b => { if(b.side==='RED') tR+=b.amount; if(b.side==='BLUE') tB+=b.amount; });
-    // Total pool includes seed on both sides
-    const totalR = tR + SEED_AMOUNT, totalB = tB + SEED_AMOUNT;
-    const tp = totalR + totalB;
-    const df = tp * DEV_FEE, np = tp - df;
-    const ws = matchResult.toUpperCase();
-    const wt = ws==='RED' ? totalR : totalB;
-    if (wt===0) return;
-    // If no real players bet at all, seed stays with Dev (no payout)
-    if (tR===0 && tB===0) { console.log('No real bets — Seed 1.0 TON stays with Dev.'); return; }
-    const pm = np/wt;
-    console.log(`\n== MATCH RESULT == Pool:${tp} Dev:${df.toFixed(2)} Net:${np.toFixed(2)} Winner:${ws} Mult:${pm.toFixed(3)}x`);
-    allBets.filter(b=>b.side===ws).forEach(w=>console.log(`  ✅ ${w.userId} ${w.amount}→${(w.amount*pm).toFixed(3)} TON`));
-  }, [fakeBets, selectedBet]);
+    const tp = pool.red + pool.blue;
+    const df = tp * DEV_FEE;
+    
+    // Distribute Dev Fee immediately when battle ends locally
+    setDevBalance(prev => {
+      const newBalance = prev + df;
+      sendTelegramNotification('devFee', {
+        amount: df,
+        totalDevBalance: newBalance,
+        round: roundCounter
+      });
+      return newBalance;
+    });
+  }, [pool, setDevBalance, roundCounter]);
 
   const simulateBattle = useCallback(() => {
     const score = (r,o) => (r.atk * getElementalMultiplier(r.element,o.element) * 1.5)+(r.spd*1.2)+(r.def*1.0);
@@ -273,7 +262,12 @@ const ArcadeBetting = ({ pvpStats, setPvpStats }) => {
       });
       setRoundCounter(prev => prev+1);
     }, 5000);
-  }, [robots.red, robots.blue, calculateAndDistributeRewards, pool, roundCounter]);
+  }, [robots.red, robots.blue, pool, roundCounter, calculateAndDistributeRewards]);
+
+  const startNewRound = () => {
+    // Replaced by backend syncing
+    console.log("Rounds are now handled automatically by the server!");
+  };
 
   // Lock countdown → battle
   useEffect(() => {
@@ -286,33 +280,38 @@ const ArcadeBetting = ({ pvpStats, setPvpStats }) => {
     return () => clearInterval(timer);
   }, [gameState, lockTimer, simulateBattle]);
 
-  const startNewRound = () => {
-    let next;
-    if (upcomingMatches.length > 0) {
-      next = upcomingMatches[0].robots;
-      setUpcomingMatches(prev => [...prev.slice(1), { robots: generateRobotPair(), time: `${String((parseInt(prev[prev.length-1]?.time) + 2) % 24).padStart(2,'0')}:00` }]);
-    } else { next = generateRobotPair(); }
-    setRobots(next);
-    setPool({ red: SEED_AMOUNT, blue: SEED_AMOUNT });
-    setFakeBets([]); setGameState('idle'); setLockTimer(LOCK_COUNTDOWN);
-    setSelectedBet(null); setWinner(null); setBattleFX(null); setShowResultModal(false); setClaimed(false);
-  };
-
   const handleBet = (side) => {
-    if (gameState === 'idle') {
-      setGameState('betting');
-      setPvpStats(prev => ({ ...prev, count: Math.min(5,prev.count+1) }));
-      setSelectedBet(side);
-      setPool(prev => ({ ...prev, [side]: prev[side]+BET_AMOUNT }));
+    if (limitReached || selectedBet || (gameState !== 'idle' && gameState !== 'betting')) return;
+    
+    if (gameBalance < BET_AMOUNT) {
+      if (triggerModal) {
+        triggerModal({
+          type: 'alert',
+          title: 'INSUFFICIENT FUNDS',
+          message: `You need at least ${BET_AMOUNT} TON to place a bet. Please deposit more funds.`,
+          confirmText: 'OK'
+        });
+      }
       return;
     }
-    if (limitReached || selectedBet || gameState !== 'betting') return;
+
+    setGameBalance(prev => prev - BET_AMOUNT);
     setSelectedBet(side);
     setPvpStats(prev => ({ ...prev, count: Math.min(5,prev.count+1) }));
     setPool(prev => ({ ...prev, [side]: prev[side]+BET_AMOUNT }));
+
+    if (gameState === 'idle') {
+      setGameState('betting');
+    }
   };
 
-  const handleClaim = () => { setClaimed(true); setTimeout(() => setShowResultModal(false), 1000); };
+  const handleClaim = () => { 
+    if (!claimed && selectedBet === winner && reward > 0) {
+      setGameBalance(prev => prev + reward);
+    }
+    setClaimed(true); 
+    setTimeout(() => setShowResultModal(false), 1000); 
+  };
 
   // Stats
   const last5 = matchHistory.slice(-5);
@@ -507,9 +506,21 @@ const ArcadeBetting = ({ pvpStats, setPvpStats }) => {
                 <div className="h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-500" style={{width:`${redPct}%`}}></div>
                 <div className="h-full bg-gradient-to-r from-blue-500 to-blue-700 transition-all duration-500" style={{width:`${bluePct}%`}}></div>
               </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-[6px] text-gray-500 font-mono">TOTAL: {totalPool} TON</span>
-                <span className="text-[6px] text-[#f1c40f] font-mono font-bold">PAYOUT: {poolAfterFee.toFixed(1)} TON</span>
+              <div className="flex justify-between mt-1 px-0.5">
+                <span className="text-[6px] text-gray-500 font-mono font-bold tracking-widest uppercase mt-0.5">TOTAL: {totalPool.toFixed(1)} TON</span>
+                <div className="flex items-center gap-2">
+                  {selectedBet ? (
+                    <span className="text-[7px] text-[#2ecc71] font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_2px_rgba(46,204,113,0.5)]">
+                      YOUR EST. REWARD: {(BET_AMOUNT * (selectedBet === 'red' ? redMult : blueMult)).toFixed(2)} TON
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-[6px] text-red-500 font-mono font-bold tracking-widest uppercase">RED PAYOUT: {redMult.toFixed(2)}x</span>
+                      <span className="text-[6px] text-gray-600 font-mono font-bold">|</span>
+                      <span className="text-[6px] text-blue-500 font-mono font-bold tracking-widest uppercase">BLUE PAYOUT: {blueMult.toFixed(2)}x</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}
