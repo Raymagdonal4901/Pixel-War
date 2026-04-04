@@ -155,9 +155,9 @@ const translations = {
 
   // --- Welcome Modal ---
   'welcome.title': { th: 'โบนัสต้อนรับ!', en: 'WELCOME BONUS!' },
-  'welcome.freeHero': { th: 'ฟรี 1 กาชาฮีโร่', en: 'FREE 1 HERO GACHA' },
+  'welcome.freeHero': { th: 'รับฟรี 3 ฮีโร่ระดับ Common', en: 'FREE 3 COMMON HEROES' },
   'welcome.connected': { th: 'เชื่อมต่อสำเร็จ', en: 'Connection Successful' },
-  'welcome.received': { th: 'คุณได้รับ: 1 กาชาฮีโร่ฟรี!', en: 'You received: 1 Free Hero Gacha!' },
+  'welcome.received': { th: 'คุณได้รับ: หุ่นยนต์ระดับ Common 3 ตัว!', en: 'You received: 3 Common Robots!' },
   'welcome.claim': { th: 'รับเลย!', en: 'CLAIM NOW!' },
   'players.online': { th: 'ออนไลน์', en: 'ONLINE' },
   'pvp.cancelSearch': { th: 'ยกเลิกการค้นหา', en: 'CANCEL SEARCH' },

@@ -367,20 +367,32 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchBalance]);
 
-  // One-time Welcome Gift Trigger (Now 5 Free Heroes for connecting wallet)
+  // One-time Welcome Gift Trigger (Now 3 Common Heroes for connecting wallet)
   useEffect(() => {
     const hasClaimed = localStorage.getItem('pixel_war_welcome_claimed');
-    // If wallet connected and never claimed, trigger the 5-hero free gift
+    // If wallet connected and never claimed, trigger the 3-hero free gift
     if (wallet && hasClaimed !== 'true' && !welcomeHeroes) {
       setTimeout(() => {
-        const results = pullMultiple(5);
-        if (results && results.length > 0) {
+        // Filter for Common heroes only
+        const commonPool = CHARACTERS.filter(c => c.rarity === 'Common');
+        if (commonPool.length >= 3) {
+          // Select 3 unique random common heroes
+          const shuffled = [...commonPool].sort(() => 0.5 - Math.random());
+          const results = shuffled.slice(0, 3).map(hero => ({
+            ...hero,
+            instanceId: Date.now() + Math.random().toString(16).slice(2, 8),
+            currentHp: hero.hp,
+            level: 1,
+            exp: 0,
+            isDeployed: false
+          }));
+          
           setWelcomeHeroes(results);
           setShowWelcomeModal(true);
         }
       }, 500); // Slight delay for better UX feel after connection
     }
-  }, [wallet, welcomeHeroes, pullMultiple]);
+  }, [wallet, welcomeHeroes]);
 
   // Generic Internal Payment Helper (Deducts from gameBalance, adds to devBalance)
   const executeGamePayment = async (amount, label) => {
@@ -2644,8 +2656,8 @@ function App() {
           </div>
         </div>
       )}
-      {/* Welcome Bonus Modal (Upgraded to 5-Hero Summon) */}
-      {showWelcomeModal && welcomeHeroes && welcomeHeroes.length === 5 && (
+      {/* Welcome Bonus Modal (Upgraded to 3-Hero Unit Deployment) */}
+      {showWelcomeModal && welcomeHeroes && welcomeHeroes.length === 3 && (
         <div className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
           <div className="bg-[#12141c] border-[3px] border-[#ffd700] w-full max-w-[420px] relative overflow-hidden shadow-[0_0_80px_rgba(255,215,0,0.2)] flex flex-col items-center">
             
@@ -2669,23 +2681,22 @@ function App() {
               </div>
 
               <div className="text-white/40 text-[8px] font-bold text-center uppercase tracking-[0.3em] mb-4">
-                {t('welcome.received') || "─── INCOMING 5-UNIT SQUAD ───"}
+                {t('welcome.received') || "─── INCOMING 3-UNIT SQUAD ───"}
               </div>
 
-              {/* 5-Hero Grid Preview */}
-              <div className="grid grid-cols-3 gap-2.5 mb-8">
+              {/* 3-Hero Grid Preview */}
+              <div className="flex justify-center gap-3 mb-8">
                  {welcomeHeroes.map((hero, idx) => (
-                   <div key={idx} className={`relative bg-black/40 border-2 p-1.5 flex flex-col items-center ${idx >= 3 ? 'translate-x-[50%]' : ''}`} 
-                        style={{ borderColor: hero.color + '66' }}>
-                      <div className="w-12 h-12 flex items-center justify-center mb-1">
-                        <div className="w-10 h-10 transform scale-110" style={{ filter: `drop-shadow(0 0 5px ${hero.color})` }}>
+                    <div key={idx} className="relative bg-black/40 border-2 border-[#7f8c8d]/60 p-2.5 flex flex-col items-center w-24 rounded-lg shadow-lg">
+                      <div className="w-16 h-16 flex items-center justify-center mb-2">
+                        <div className="w-14 h-14 transform scale-110" style={{ filter: `drop-shadow(0 0 8px ${hero.color})` }}>
                           <Sprite char={hero} />
                         </div>
                       </div>
-                      <div className="text-[6px] font-black uppercase opacity-60 truncate w-full text-center" style={{ color: hero.color }}>
+                      <div className="text-[7px] font-black uppercase text-[#7f8c8d] tracking-widest bg-black/40 px-2 py-0.5 rounded-full">
                         {hero.rarity}
                       </div>
-                   </div>
+                    </div>
                  ))}
               </div>
 
