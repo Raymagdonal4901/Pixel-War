@@ -124,6 +124,7 @@ function App() {
 
   // Global Socket & Online Players State
   const [onlineCount, setOnlineCount] = useState(0);
+  const [totalPlayers, setTotalPlayers] = useState(0);
   const [onlinePlayers, setOnlinePlayers] = useState([]);
   const [poolData, setPoolData] = useState(null);
   const socketRef = useRef(null);
@@ -142,6 +143,7 @@ function App() {
     // Listen for real online players list
     socketRef.current.on('onlinePlayers', (data) => {
       setOnlineCount(data.count);
+      setTotalPlayers(data.total || 0);
       setOnlinePlayers(data.players || []);
     });
 
@@ -281,6 +283,8 @@ function App() {
   // Profile State
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('pixel_war_player_name') || 'Player1');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [showNameMandatory, setShowNameMandatory] = useState(false);
+  const [tempName, setTempName] = useState('');
   
   const GRADE_COLORS = {
     'S': '#f1c40f',
@@ -328,6 +332,16 @@ function App() {
     // Sync name change to backend
     if (socketRef.current?.connected) {
       socketRef.current.emit('updatePlayer', { name: playerName });
+    }
+  }, [playerName]);
+
+  // Mandatory Name Change Check
+  useEffect(() => {
+    if (playerName === 'Player1') {
+      setShowNameMandatory(true);
+      setTempName('');
+    } else {
+      setShowNameMandatory(false);
     }
   }, [playerName]);
 
@@ -535,9 +549,11 @@ function App() {
 
 
   const handleSaveProfile = (newName) => {
-    if (newName.trim().length >= 3 && newName.trim().length <= 15) {
-      setPlayerName(newName.trim());
+    const trimmed = newName.trim();
+    if (trimmed.length >= 3 && trimmed.length <= 15) {
+      setPlayerName(trimmed);
       setIsEditingProfile(false);
+      setShowNameMandatory(false);
     }
   };
 
@@ -789,9 +805,14 @@ function App() {
               <button 
                 className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.1)] hover:bg-emerald-500/20 transition-all cursor-pointer"
               >
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
-                <span className="text-emerald-400 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
-                  {onlineCount} {t('players.online') || 'ONLINE'}
+                <div className="flex items-center gap-1 border-r border-emerald-500/20 pr-1.5 mr-0.5">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
+                  <span className="text-emerald-400 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
+                    {onlineCount} {t('players.online') || 'ONLINE'}
+                  </span>
+                </div>
+                <span className="text-gray-500 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
+                  {totalPlayers} TOTAL
                 </span>
               </button>
               
@@ -2937,6 +2958,78 @@ function App() {
                  </button>
               </div>
            </div>
+        </div>
+      )}
+      {/* Mandatory Name Change Overlay */}
+      {showNameMandatory && (
+        <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-in fade-in duration-500">
+          <div className="w-full max-w-sm bg-[#0a0c10] border-[4px] border-[#ffd700] shadow-[0_0_100px_rgba(255,215,0,0.15)] relative overflow-hidden flex flex-col items-center p-8">
+            {/* Decal background */}
+            <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden">
+               <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,rgba(255,215,0,0.2) 0%,transparent 70%)]"></div>
+               <div className="grid grid-cols-10 h-full w-full">
+                  {Array.from({length: 40}).map((_, i) => (
+                    <div key={i} className="border border-white/5 h-10 w-full text-[10px] flex items-center justify-center opacity-10">01</div>
+                  ))}
+               </div>
+            </div>
+
+            {/* Header */}
+            <div className="relative z-10 w-full mb-8 text-center">
+              <div className="bg-[#ffd700] inline-block px-4 py-1 mb-4">
+                 <span className="text-black text-xs font-black tracking-widest uppercase">PIXEL WAR SYSTEM</span>
+              </div>
+              <h2 className="text-white text-xl font-black tracking-[0.2em] uppercase mb-4 drop-shadow-[0_0_15px_rgba(0,0,0,0.5)]">
+                 {t('profile.mandatoryTitle')}
+              </h2>
+              <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-[#ffd700] to-transparent opacity-50 mb-4"></div>
+              <p className="text-gray-400 text-[10px] font-bold leading-relaxed tracking-wider px-2">
+                 {t('profile.mandatoryDesc')}
+              </p>
+            </div>
+
+            {/* Input Field */}
+            <div className="relative z-10 w-full mb-10">
+               <div className="absolute -top-3 left-4 bg-[#0a0c10] px-2 text-[8px] text-[#ffd700] font-bold tracking-widest uppercase z-20">
+                  CODENAME INPUT
+               </div>
+               <input 
+                 autoFocus
+                 type="text"
+                 value={tempName}
+                 maxLength={15}
+                 onChange={(e) => setTempName(e.target.value)}
+                 placeholder="COMMANDER NAME..."
+                 className="w-full bg-black/60 border-2 border-[#ffd700]/30 p-4 text-[#ffd700] text-center font-black tracking-widest focus:border-[#ffd700] outline-none transition-all placeholder:text-[#ffd700]/10"
+               />
+               <div className="flex justify-between items-center mt-2 px-1">
+                  <span className="text-[7px] text-gray-500 font-bold italic">{t('profile.minChars')}</span>
+                  <span className={`text-[8px] font-mono font-bold ${tempName.length >= 3 ? 'text-[#ffd700]' : 'text-red-500'}`}>
+                    {tempName.length}/15
+                  </span>
+               </div>
+            </div>
+
+            {/* Submit Button */}
+            <button 
+              disabled={tempName.trim().length < 3}
+              onClick={() => handleSaveProfile(tempName)}
+              className={`relative z-10 w-full py-5 font-black tracking-[0.3em] uppercase transition-all flex items-center justify-center gap-3 active:translate-y-1 ${
+                tempName.trim().length >= 3 
+                ? 'bg-[#ffd700] hover:bg-[#ffed4a] text-black shadow-[0_5px_0_#9a8100]' 
+                : 'bg-gray-800 text-gray-600 grayscale cursor-not-allowed border-none'
+              }`}
+            >
+              🚀 {t('profile.commence')}
+            </button>
+
+            {/* Decorative bottom barcode */}
+            <div className="mt-8 relative z-10 opacity-30 flex gap-0.5">
+               {Array.from({length: 20}).map((_, i) => (
+                 <div key={i} className="bg-white h-4" style={{ width: Math.random() > 0.5 ? '2px' : '4px' }}></div>
+               ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

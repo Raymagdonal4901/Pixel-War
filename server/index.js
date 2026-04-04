@@ -45,12 +45,18 @@ const getOnlinePlayersList = () => {
   }));
 };
 
-const broadcastOnlinePlayers = () => {
-  const players = getOnlinePlayersList();
-  io.emit('onlinePlayers', {
-    count: players.length,
-    players
-  });
+const broadcastOnlinePlayers = async () => {
+    try {
+        const players = getOnlinePlayersList();
+        const totalCount = await Player.countDocuments({});
+        io.emit('onlinePlayers', {
+            count: players.length,
+            total: totalCount,
+            players
+        });
+    } catch (err) {
+        console.error('Error broadcasting player counts:', err);
+    }
 };
 
 // Helper to get time until next even hour locally

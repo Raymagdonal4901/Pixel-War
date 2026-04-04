@@ -198,6 +198,12 @@ const translations = {
   'pvp.player': { th: 'ผู้เล่น', en: 'PLAYER' },
   'pvp.enemy': { th: 'คู่แข่ง', en: 'ENEMY' },
   'pvp.turn': { th: 'เทิร์น', en: 'Turn' },
+
+  // --- Profile Identity ---
+  'profile.mandatoryTitle': { th: 'ระบุตัวตนผู้บัญชาการ', en: 'COMMANDER IDENTIFICATION' },
+  'profile.mandatoryDesc': { th: 'กรุณาตั้งชื่อรหัสผู้บัญชาการของคุณก่อนเริ่มปฏิบัติการ', en: 'Please register your commander codename before commencing deployment.' },
+  'profile.commence': { th: 'เริ่มปฏิบัติการ', en: 'COMMENCE DEPLOYMENT' },
+  'profile.minChars': { th: 'อย่างน้อย 3 ตัวอักษร', en: 'Min 3 chars' },
   'pvp.rules': { th: '📜 กฎ', en: '📜 Rules' },
   'pvp.rulesTitle': { th: '📜 กฎการต่อสู้ PVP', en: '📜 PVP BATTLE RULES' },
   'pvp.understood': { th: 'เข้าใจแล้ว', en: 'UNDERSTOOD' },
