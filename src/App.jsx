@@ -1,17 +1,17 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { CHARACTERS, RARITY_COLORS } from './data/characters';
-import { BOSSES, calcROI, GACHA_COST_TON, DROP_RATES, REPAIR_FEE_PERCENT, calcRepairCost, BASE_RATE_PER_ATK } from './data/tokenomics';
+import { BOSSES, GACHA_COST_TON, DROP_RATES, REPAIR_FEE_PERCENT, calcRepairCost, BASE_RATE_PER_ATK, TIER_PRICING, RARITY_ORDER } from './data/tokenomics';
 import { useGacha } from './hooks/useGacha';
 import { useHeroRoster } from './hooks/useHeroRoster';
-import { useSquad } from './hooks/useSquad';
-import { useBossRaid } from './hooks/useBossRaid';
 import { TonConnectButton, useTonWallet, useTonConnectUI } from '@tonconnect/ui-react';
-import RepairPaymentButton from './components/RepairPaymentButton';
 import PvpArena from './components/PvpArena';
+import Sprite from './components/Sprite';
 import ArcadeBetting from './components/ArcadeBetting';
-import ReferralHub from './components/ReferralHub';
+import IdleMining from './components/IdleMining';
 import { useT } from './i18n/LanguageContext';
+import { useMining } from './hooks/useMining';
 import { useReferral } from './hooks/useReferral';
+import ReferralHub from './components/ReferralHub';
 import { sendTelegramNotification } from './utils/telegram';
 import { io } from 'socket.io-client';
 
@@ -68,44 +68,13 @@ const PREVIEW_DATA = [
   CHARACTERS.find(c => c.rarity === 'Legendary')
 ].filter(Boolean);
 
+const IconMining = () => (
+  <div className="relative w-8 h-8 flex items-center justify-center">
+    <span className="text-2xl drop-shadow-lg">⛏️</span>
+  </div>
+);
 
 
-
-const Sprite = ({ char, className = "" }) => {
-  if (!char) return <span>🤖</span>;
-  if (char.imagePath) {
-    // Standard Vite public path
-    const src = char.imagePath.startsWith('/') ? char.imagePath : `/${char.imagePath}`;
-    return (
-      <img 
-        src={src} 
-        alt={char.name} 
-        className={`${className} w-full h-full object-contain image-pixelated`}
-        style={{ minWidth: '20px', minHeight: '20px' }}
-      />
-    );
-  }
-  const { sprite } = char;
-  if (!sprite) return <span>🤖</span>;
-  const cols = 8;
-  const rows = 8; 
-  return (
-    <div 
-      className={className}
-      style={{
-        width: '100%',
-        height: '100%',
-        backgroundImage: `url('/${sprite.sheet}')`,
-        backgroundSize: `${cols * 100}% ${rows * 100}%`,
-        backgroundPosition: `${(sprite.col / (cols - 1)) * 100}% ${(sprite.row / (rows - 1)) * 100}%`,
-        backgroundRepeat: 'no-repeat',
-        imageRendering: 'pixelated'
-      }}
-    />
-  );
-};
-
-const RARITY_ORDER = { Legendary: 0, Epic: 1, SR: 2, Rare: 3, Common: 4 };
 
 // Blockchain Config
 const RECIPIENT_ADDRESS = "UQBc7XwYlXbqVYO76GOizi3Ji97aFHj98jKfbKUkUWKUgP2p";
@@ -121,6 +90,7 @@ function App() {
   const [pullResult, setPullResult] = useState(null);
   const [isPulling, setIsPulling] = useState(false);
   const [showRates, setShowRates] = useState(false);
+
 
   // Global Socket & Online Players State
   const [onlineCount, setOnlineCount] = useState(0);
@@ -166,6 +136,15 @@ function App() {
       }
     });
 
+    // Mining events
+    socketRef.current.on('mining:claimed', (data) => {
+      setGameBalance(data.newBalance);
+    });
+
+    socketRef.current.on('mining:error', (data) => {
+      console.warn('[Mining Error]', data.message);
+    });
+
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
     };
@@ -175,17 +154,13 @@ function App() {
   const [selectedHero, setSelectedHero] = useState(null);
   const [showCapacityWarning, setShowCapacityWarning] = useState(false);
   const [gachaAnim, setGachaAnim] = useState(null); // 'falling', 'shaking', 'burst', 'revealed'
-  const { pullMultiple, legendaryPity, totalPulls } = useGacha();
-  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, damageHeroes, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
+  const { buyTier, legendaryPity } = useGacha();
+  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
+  const miningData = useMining(userHeroes, socketRef.current);
   const [showRepairModal, setShowRepairModal] = useState(false);
-  const [activeRepairType, setActiveRepairType] = useState('squad'); // 'squad' or 'all'
-  const [selectedBossIndex, setSelectedBossIndex] = useState(0);
-  const currentBoss = BOSSES[selectedBossIndex];
-  const { deployedHeroes, availableHeroes, squadCount, maxSquadSize, isFull, totalAtk, deployHero, undeployHero, deployAll, undeployAll } = useSquad(userHeroes, currentBoss.maxSlots);
-  const { isRaidActive, progress, dailyEarning, bossMaxHp, elapsedFormatted, remainingFormatted, startRaid, claimReward, cancelRaid } = useBossRaid(totalAtk, currentBoss.multiplier);
-  const [raidFilter, setRaidFilter] = useState('ALL');
-  const [showSquadFullWarning, setShowSquadFullWarning] = useState(false);
-  const [showClaimResult, setShowClaimResult] = useState(null);
+  const [activeRepairType] = useState('all'); 
+
+  const [pvpStats, setPvpStats] = useState({ matches: 0, wins: 0, rank: 'Bronze' });
 
   // Long-press Popup State
   const [longPressHero, setLongPressHero] = useState(null);
@@ -293,22 +268,11 @@ function App() {
     'C': '#95a5a6'
   };
 
-  const ELEMENT_COLORS = {
-    'PLASMA': '#ff4757', // Fire Red
-    'CRYO': '#54a0ff',   // Ice Blue
-    'BIO': '#2ed573'     // Leaf Green
-  };
 
-  const ELEMENT_ICONS = {
-    'PLASMA': '🔥',
-    'CRYO': '💧',
-    'BIO': '🌿'
-  };
-  
   // PVP & Arcade Shared Quota State (5 per 2 hours)
-  const [pvpStats, setPvpStats] = useState(() => {
+  const [pvpQuota, setPvpQuota] = useState(() => {
     const currentPeriodId = Math.floor(Date.now() / (2 * 3600 * 1000));
-    const saved = localStorage.getItem('pixel_war_pvp_stats');
+    const saved = localStorage.getItem('pixel_war_pvp_quota');
     const defaultStats = { count: 0, lastResetDayId: currentPeriodId };
     try {
       const parsed = saved ? JSON.parse(saved) : defaultStats;
@@ -322,10 +286,10 @@ function App() {
     }
   });
 
-  // Persist pvpStats when changed
+  // Persist pvpQuota when changed
   useEffect(() => {
-    localStorage.setItem('pixel_war_pvp_stats', JSON.stringify(pvpStats));
-  }, [pvpStats]);
+    localStorage.setItem('pixel_war_pvp_quota', JSON.stringify(pvpQuota));
+  }, [pvpQuota]);
 
   useEffect(() => {
     localStorage.setItem('pixel_war_player_name', playerName);
@@ -438,7 +402,6 @@ function App() {
         sendTelegramNotification('devFee', {
           amount: amount,
           totalDevBalance: newBalance,
-          round: label || 'Game Action'
         });
         return newBalance;
       });
@@ -571,7 +534,7 @@ function App() {
         setGameBalance(0);
         setDevBalance(0);
         setPlayerName('Player1');
-        setPvpStats({ count: 0, lastResetDayId: Math.floor(Date.now() / (2 * 3600 * 1000)) });
+        setPvpQuota({ count: 0, lastResetDayId: Math.floor(Date.now() / (2 * 3600 * 1000)) });
         resetReferrals();
         
         // Reload page to ensure all hooks/states are fresh
@@ -643,30 +606,6 @@ function App() {
   };
 
   // Derived tokenomics values
-  const totalInvested = totalPulls * GACHA_COST_TON;
-  const roiDays = calcROI(totalInvested, dailyEarning);
-
-  // Repair bill for the currently deployed squad
-  const repairBill = useMemo(() => {
-    let totalCost = 0;
-    const damagedSquad = deployedHeroes.filter(h => h.needsRepair);
-    const breakdownMap = {};
-    
-    damagedSquad.forEach(hero => {
-      if (!breakdownMap[hero.rarity]) breakdownMap[hero.rarity] = { rarity: hero.rarity, count: 0, totalGroupCost: 0, color: hero.color };
-      const cost = calcRepairCost(hero.atk);
-      breakdownMap[hero.rarity].count += 1;
-      breakdownMap[hero.rarity].totalGroupCost += cost;
-      totalCost += cost;
-    });
-
-    return { 
-      breakdown: Object.values(breakdownMap).sort((a, b) => (RARITY_ORDER[a.rarity] ?? 5) - (RARITY_ORDER[b.rarity] ?? 5)), 
-      totalCost, 
-      damagedCount: damagedSquad.length,
-      damagedIds: damagedSquad.map(h => h.instanceId)
-    };
-  }, [deployedHeroes]);
 
   // Repair bill for the entire roster
   const repairAllBill = useMemo(() => {
@@ -690,7 +629,7 @@ function App() {
     };
   }, [userHeroes]);
 
-  const currentRepairBill = activeRepairType === 'all' ? repairAllBill : repairBill;
+  const currentRepairBill = repairAllBill;
 
   // Filtered heroes for display
   const filteredHeroes = useMemo(() => {
@@ -707,17 +646,19 @@ function App() {
     });
   }, [filteredHeroes]);
 
-  const handlePull = async (count) => {
+  const handleBuyTier = async (rarity) => {
     if (isPulling) return;
     
     // Check capacity first
-    if (!canAdd(count)) {
+    if (!canAdd(1)) {
       setShowCapacityWarning(true);
       return;
     }
 
+    const cost = TIER_PRICING[rarity];
+
     // Await Real Blockchain Payment
-    const success = await executeRealTonPayment(GACHA_FEE_TON * count, `Gacha x${count}`);
+    const success = await executeRealTonPayment(cost, `Buy ${rarity} Robot`);
     if (!success) return;
 
     setIsPulling(true);
@@ -734,7 +675,7 @@ function App() {
         
         // step 3: Burst (0.6s)
         setTimeout(() => {
-          const chars = pullMultiple(count);
+          const chars = buyTier(rarity);
           setPullResult(chars);
           setGachaAnim(null);
           setIsPulling(false);
@@ -877,462 +818,138 @@ function App() {
             ></div>
             
             <div className="relative z-10 w-full flex flex-col flex-1">
-            {raidView === 'list' && !isRaidActive ? (
-              <section className="flex flex-col items-center mb-4 w-full">
-                <div className="text-center mb-4 w-full">
-                  <h2 className="text-yellow-400 text-lg font-bold drop-shadow-md animate-pulse">{t('raid.bossTitle')}</h2>
-                  <p className="text-gray-400 text-[8px] mt-1">{t('raid.selectBoss')}</p>
-                </div>
-                
-                <div className="flex flex-col gap-3 w-full px-2">
-                  {BOSSES.map((boss, idx) => {
-                    const isUnlocked = idx === 0 || heroCount >= BOSSES[idx - 1].maxSlots;
-
-                    return (
-                      <div 
-                        key={boss.id} 
-                        className={`relative w-full pixel-border p-3 transition-all ${
-                          isUnlocked 
-                            ? 'opacity-100 cursor-pointer hover:scale-[1.02]' 
-                            : 'opacity-50 grayscale cursor-not-allowed'
-                        }`}
-                        style={{ 
-                          backgroundColor: `${boss.color}15`, 
-                          borderColor: isUnlocked ? boss.color : '#333' 
-                        }}
-                        onClick={() => {
-                          if (isUnlocked) {
-                            setSelectedBossIndex(idx);
-                            setRaidView('room');
-                          }
-                        }}
-                      >
-                        {/* Lock Overlay */}
-                        {!isUnlocked && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10 transition-opacity">
-                            <span className="text-3xl drop-shadow-md">🔒</span>
-                            <div className="absolute bottom-2 text-[6px] text-center w-full px-4 text-white">
-                              {t('raid.requireUnits', { count: BOSSES[idx-1].maxSlots })}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="flex gap-3 items-center">
-                          {/* Boss Thumbnail */}
-                          <div className="w-16 h-20 bg-black/40 pixel-border-sm flex-shrink-0 relative overflow-hidden" style={{ borderColor: boss.color }}>
-                            <img src={boss.image} alt={boss.name} className="w-full h-full object-cover image-pixelated" />
-                            <div className="absolute top-0 right-0 bg-black/70 text-[6px] px-1 text-white">T{boss.tier}</div>
-                          </div>
-
-                          {/* Boss Details */}
-                          <div className="flex-1 flex flex-col justify-center">
-                            <h3 className="text-sm font-bold" style={{ color: boss.color }}>{boss.name}</h3>
-                            
-                            <div className="bg-black/50 p-1.5 mt-1 pixel-border-sm text-[8px]">
-                              <p className="text-gray-300">{t('raid.deployLimit')}: <span className="text-green-400 font-bold">{boss.maxSlots} {t('raid.slots')}</span></p>
-                            </div>
-                            
-                            <div className="flex justify-between items-center text-[7px] text-gray-300 mt-2 px-1">
-                              <span className="flex items-center gap-1">
-                                {t('raid.bonus')}: <span className="text-[var(--color-pixel)] font-bold">{boss.bonusLabel}</span>
-                              </span>
-                              <span>ROI: ~{boss.roiDays}d</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Enter Button */}
-                        {isUnlocked && (
-                          <button 
-                            className="w-full mt-3 hover:bg-blue-800 text-white py-1.5 text-[8px] pixel-border-sm transition-colors"
-                            style={{ backgroundColor: `${boss.color}44`, borderColor: boss.color }}
-                          >
-                            {t('raid.enterRaid')}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                
-                <div className="mt-6 text-center text-[6px] text-gray-500 max-w-xs px-4">
-                  {t('raid.unlockHint')}
-                </div>
-              </section>
-            ) : (
-              <>
-                {!isRaidActive && (
-                  <button 
-                    onClick={() => setRaidView('list')} 
-                    className="w-full mb-3 py-1.5 bg-black/40 text-gray-400 hover:text-white hover:bg-black/60 pixel-border-sm text-[7px] text-left px-3 transition-colors flex items-center gap-2"
-                  >
-                    <span>←</span> {t('raid.backToBoss')}
-                  </button>
-                )}
-                {/* Boss Info Panel */}
-                <section className="flex flex-col items-center mb-4">
-                  <div className="text-center mb-4">
-                    <h2 className="text-[#e74c3c] text-sm animate-pulse">⚔️ {t('raid.bossTitle')}</h2>
-                    <div className="flex items-center justify-center gap-2 mt-1">
-                      <span className="text-white text-[10px]">Tier {currentBoss.tier}:</span>
-                      <span className="text-[12px] font-bold" style={{ color: currentBoss.color }}>{currentBoss.name}</span>
-                      <span className="text-[7px] px-1.5 py-0.5 pixel-border-sm font-bold animate-pulse" style={{ color: currentBoss.color, borderColor: currentBoss.color, backgroundColor: currentBoss.color + '22' }}>{currentBoss.bonusLabel}</span>
-                    </div>
+              {raidView === 'list' ? (
+                <section className="flex flex-col items-center mb-4 w-full">
+                  <div className="text-center mb-4 w-full">
+                    <h2 className="text-yellow-400 text-lg font-bold drop-shadow-md animate-pulse">{t('raid.bossTitle')}</h2>
+                    <p className="text-gray-400 text-[8px] mt-1">{t('raid.selectBoss')}</p>
                   </div>
-
-              <div className="relative w-44 h-56 mb-3">
-                <div 
-                  className={`w-full h-full pixel-border flex items-center justify-center overflow-hidden relative bg-black/20 ${isRaidActive ? '' : 'animate-float'}`}
-                  style={{ borderColor: currentBoss.color }}
-                >
-                  {/* Boss Glow/Aura */}
-                  <div 
-                    className={`absolute inset-0 opacity-20 blur-2xl ${isRaidActive ? 'animate-pulse' : ''}`}
-                    style={{ backgroundColor: currentBoss.color }}
-                  ></div>
                   
-                  {/* Dynamic Boss Image */}
-                  <img 
-                    src={currentBoss.image} 
-                    alt={currentBoss.name} 
-                    className="w-full h-full object-cover image-pixelated relative z-10"
-                  />
-                  
-                  {/* Active Raid Overlay */}
-                  {isRaidActive && (
-                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-end pb-2 bg-gradient-to-t from-black/70 to-transparent">
-                      <div className="text-[8px] text-emerald-400 animate-pulse">{t('raid.mining')}</div>
-                      <div className="text-[10px] text-white font-bold">{progress.earnedTon.toFixed(4)} TON</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* HP Bar — Live during raid */}
-              <div className="w-full max-w-xs bg-[var(--color-hp-bg)] h-5 pixel-border-sm relative">
-                <div 
-                  className="h-full transition-all duration-1000" 
-                  style={{ width: `${(isRaidActive ? progress.hpPercent : 1) * 100}%`, backgroundColor: currentBoss.color }}
-                ></div>
-                <div className="absolute inset-0 flex items-center justify-center text-white text-[8px] drop-shadow-md">
-                  {isRaidActive 
-                    ? `${Math.floor(progress.hpPercent * bossMaxHp).toLocaleString()} / ${bossMaxHp.toLocaleString()} HP`
-                    : (totalAtk > 0 ? `${bossMaxHp.toLocaleString()} / ${bossMaxHp.toLocaleString()} HP` : t('raid.deployHeroToSeeHp'))}
-                </div>
-              </div>
-
-              {/* Raid Timer (shown during active raid) */}
-              {isRaidActive && (
-                <div className="flex items-center gap-3 mt-2 w-full max-w-xs">
-                  <div className="flex-1 text-center bg-black/40 px-2 py-1.5 pixel-border-sm text-[7px]">
-                    <span className="text-gray-400">{t('raid.elapsed')}</span>
-                    <div className="text-white text-[10px] font-bold mt-0.5">{elapsedFormatted}</div>
-                  </div>
-                  <div className="flex-1 text-center bg-black/40 px-2 py-1.5 pixel-border-sm text-[7px]">
-                    <span className="text-gray-400">{t('raid.remaining')}</span>
-                    <div className="text-white text-[10px] font-bold mt-0.5">{remainingFormatted}</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Stats Row */}
-              <div className="flex items-center gap-2 mt-2 w-full max-w-xs">
-                <div className="flex-1 text-center bg-black/40 px-2 py-1 pixel-border-sm text-[7px]">
-                  <span className="text-orange-400">⚔️ ATK: </span>
-                  <span className="text-white">{totalAtk.toLocaleString()}</span>
-                </div>
-                <div className="flex-1 text-center bg-black/40 px-2 py-1 pixel-border-sm text-[7px]">
-                  <span className="text-emerald-400">⛏️ Mining: </span>
-                  <span className="text-white">{dailyEarning.toFixed(3)} TON/d</span>
-                </div>
-                {totalInvested > 0 && (
-                  <div className="flex-1 text-center bg-black/40 px-2 py-1 pixel-border-sm text-[7px]">
-                    <span className="text-cyan-400">📊 ROI: </span>
-                    <span className="text-white">~{roiDays === Infinity ? '∞' : roiDays.toFixed(1)}d</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Stats Row removed but kept for structure if needed later */}
-            </section>
-
-            {/* Section 1: Deployed Squad */}
-            <section className="mb-3">
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="text-gray-200 text-[10px]">{t('raid.deployedSquad')}</h3>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[8px] ${squadCount >= maxSquadSize ? 'text-[#e74c3c]' : 'text-[#f1c40f]'}`}>
-                    {squadCount} / {maxSquadSize}
-                  </span>
-                  {squadCount > 0 && (
-                    <button 
-                      onClick={undeployAll}
-                      className="pixel-button bg-red-900/60 hover:bg-red-800/80 text-red-300 px-2 py-0.5 text-[6px] pixel-border-sm"
-                    >{ t('raid.clearAll')}</button>
-                  )}
-                  {availableHeroes.length > 0 && !isFull && (
-                    <button 
-                      onClick={deployAll}
-                      className="pixel-button bg-emerald-900/60 hover:bg-emerald-800/80 text-emerald-300 px-2 py-0.5 text-[6px] pixel-border-sm"
-                    >{t('raid.deployAll')}</button>
-                  )}
-                </div>
-              </div>
-
-              {/* 30-slot Grid */}
-              <div className="grid grid-cols-6 gap-1">
-                {Array.from({ length: maxSquadSize }).map((_, i) => {
-                  const hero = deployedHeroes[i];
-                  if (hero) {
-                    return (
-                      <button
-                        key={hero.instanceId}
-                        onClick={() => undeployHero(hero.instanceId)}
-                        onPointerDown={(e) => handlePointerDown(hero, e)}
-                        onPointerUp={handlePointerUp}
-                        onPointerLeave={handlePointerUp}
-                        onContextMenu={(e) => e.preventDefault()}
-                        className="squad-card bg-[var(--color-game-panel)] p-1 pixel-border-sm flex flex-col items-center relative"
-                        style={{ borderColor: hero.color }}
-                        title={`Click to remove ${hero.name}`}
-                      >
-                        <div className="absolute -top-1.5 right-0 px-1 text-[4px] bg-black/90 font-black tracking-tighter border border-white/20" style={{ color: hero.color }}>
-                          {hero.rarity === 'Legendary' ? 'LEGENDARY' : hero.rarity === 'SR' ? 'SUPER RARE' : hero.rarity.toUpperCase()}
-                        </div>
-                        {/* Star Level Indicator (Center Top) */}
-                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 flex gap-[1px] pointer-events-none z-10">
-                          {Array.from({ length: hero.level || 1 }).map((_, idx) => (
-                            <span key={idx} className="text-[#f1c40f] text-[5px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">★</span>
-                          ))}
-                        </div>
-                        <div className="w-8 h-8 flex items-center justify-center relative" style={{ backgroundColor: hero.imageColor }}>
-                          <div className="w-7 h-7"><Sprite char={hero} /></div>
-                          <div className="absolute top-0 left-0 bg-black/60 flex items-center justify-center w-3 h-3 text-[5px] z-10">
-                            {ELEMENT_ICONS[hero.element]}
-                          </div>
-                        </div>
-                        {/* Stats Display */}
-                        <div className="flex flex-col items-center w-full gap-[1px] text-[6px] font-bold mt-0.5 leading-none">
-                          <div className="flex gap-1.5">
-                            <span className="text-red-400">HP:{hero.hp}</span>
-                            <span className="text-orange-400">ATK:{hero.atk}</span>
-                          </div>
-                          <div className="flex gap-1.5">
-                            <span className="text-blue-400">DEF:{hero.def}</span>
-                            <span className="text-emerald-400">SPD:{hero.spd}</span>
-                          </div>
-                        </div>
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[3px] text-center text-red-400 py-0.5 opacity-0 hover:opacity-100 transition-opacity">
-                          {t('raid.remove')}
-                        </div>
-                      </button>
-                    );
-                  }
-                  return (
-                    <div key={`empty-${i}`} className="squad-slot-empty w-full aspect-square flex items-center justify-center">
-                      <span className="text-[6px] text-gray-600">{i + 1}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* Start / Repair / Claim / Cancel Raid Buttons */}
-            {squadCount > 0 && (
-              <div className="mb-6 mt-1 space-y-2 px-1">
-                {!isRaidActive ? (
-                  deployedHeroes.some(h => h.needsRepair) ? (
-                    <button 
-                      onClick={() => { setActiveRepairType('squad'); setShowRepairModal(true); }}
-                      className="pixel-button w-full py-3 text-sm pixel-border text-white bg-red-600 hover:bg-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-all animate-pulse"
-                      style={{ borderColor: '#ef4444' }}
-                    >
-                      {t('raid.repairSquad')}
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => startRaid()}
-                      className="w-full py-3 text-sm text-white font-bold tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,0,0,0.4)] flex items-center justify-center gap-2"
-                      style={{ backgroundColor: '#8a0000', border: '3px solid #ff6b35', outline: '2px solid #b30000', outlineOffset: '1px' }}
-                    >
-                      {t('raid.startMining')} {currentBoss.name.toUpperCase()}
-                    </button>
-                  )
-                ) : (
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => {
-                        const claimed = claimReward();
-                        if (claimed > 0) {
-                          setGameBalance(prev => prev + claimed);
-                          damageHeroes(deployedHeroes.map(h => h.instanceId));
-                          setShowClaimResult(claimed);
-                        }
-                      }}
-                      className={`pixel-button flex-1 py-3 text-sm pixel-border text-white ${progress.isComplete ? 'bg-gradient-to-r from-emerald-600 to-emerald-800 fight-button-glow' : 'bg-emerald-700'}`}
-                      style={{ borderColor: '#2ecc71' }}
-                    >
-                      {t('raid.claim')} {progress.earnedTon.toFixed(4)} TON
-                    </button>
-                    <button 
-                      onClick={() => {
-                        triggerModal({
-                          type: 'confirm',
-                          title: t('confirm.cancelMission'),
-                          message: t('confirm.cancelMsg'),
-                          onConfirm: () => cancelRaid()
-                        });
-                      }}
-                      className="pixel-button px-3 py-3 text-sm pixel-border text-red-400 bg-gray-800 hover:bg-gray-700"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-                {!isRaidActive && (
-                  <p className="text-center text-[7px] text-gray-500 pt-1">
-                    {t('raid.deployHint')}
-                  </p>
-                )}
-                {isRaidActive && progress.isComplete && (
-                  <p className="text-center text-[8px] text-emerald-400 animate-pulse font-bold">
-                    {t('raid.raidComplete')}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Divider */}
-            <div className="section-divider mb-2">
-              <span className="text-[7px] text-gray-500">{t('raid.heroRoster')}</span>
-            </div>
-
-            {/* Section 2: Available Heroes from Roster */}
-            <section>
-              {/* Rarity Filter */}
-              <div className="flex gap-1 mb-2 overflow-x-auto pb-1">
-                {[
-                  { key: 'ALL', label: 'ALL', color: '#f1c40f' },
-                  { key: 'Legendary', label: 'LEG', color: '#f1c40f' },
-                  { key: 'Epic', label: 'EPIC', color: '#9b59b6' },
-                  { key: 'SR', label: 'SR', color: '#2ecc71' },
-                  { key: 'Rare', label: 'RARE', color: '#3498db' },
-                  { key: 'Common', label: 'COM', color: '#95a5a6' },
-                ].map(f => (
-                  <button
-                    key={f.key}
-                    onClick={() => setRaidFilter(f.key)}
-                    className={`filter-tab flex-shrink-0 px-1.5 py-1 text-[6px] pixel-border-sm ${raidFilter === f.key ? 'active' : ''}`}
-                    style={{ 
-                      backgroundColor: raidFilter === f.key ? f.color + '33' : 'rgba(0,0,0,0.4)',
-                      borderColor: raidFilter === f.key ? f.color : 'var(--color-game-border)',
-                      color: raidFilter === f.key ? f.color : '#888'
-                    }}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-
-              {userHeroes.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-                  <span className="text-3xl mb-3 opacity-50">🛡️</span>
-                  <p className="text-[8px] mb-2">{t('raid.noHeroes')}</p>
-                  <button 
-                    onClick={() => setActiveTab('gacha')} 
-                    className="pixel-button bg-[var(--color-pixel)] text-black px-3 py-1.5 text-[7px] pixel-border-sm"
-                  >{t('raid.goSummon')}</button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {(() => {
-                    const deployedSet = new Set(deployedHeroes.map(h => h.instanceId));
-                    const order = ['Legendary', 'Epic', 'SR', 'Rare', 'Common'];
-                    return order.map(rarity => {
-                      if (raidFilter !== 'ALL' && raidFilter !== rarity) return null;
-                      
-                      const groupHeroes = userHeroes
-                        .filter(h => h.rarity === rarity)
-                        .sort((a, b) => (b.obtainedAt || 0) - (a.obtainedAt || 0));
-                      
-                      if (groupHeroes.length === 0) return null;
-
-                      const rarityLabel = rarity === 'SR' ? 'SUPER RARE' : rarity.toUpperCase();
-                      const rarityColor = RARITY_COLORS[rarity] || '#888';
+                  <div className="flex flex-col gap-3 w-full px-2">
+                    {BOSSES.map((boss, idx) => {
+                      // Simple unlock logic: 0 is always unlocked
+                      const isUnlocked = idx === 0 || heroCount >= (idx * 5); // Example: 5 heroes per tier
 
                       return (
-                        <div key={rarity} className="flex flex-col gap-2">
-                           <div className="flex items-center gap-2 px-1">
-                              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                              <span className="text-[6px] font-bold tracking-widest px-2 py-0.5 pixel-border-sm" 
-                                    style={{ color: rarityColor, borderColor: rarityColor + '44', backgroundColor: rarityColor + '11' }}>
-                                 {rarityLabel} ({groupHeroes.length})
-                              </span>
-                              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-                           </div>
-                           
-                           <div className="grid grid-cols-5 gap-1.5 px-1">
-                              {groupHeroes.map(hero => {
-                                 const isDeployed = deployedSet.has(hero.instanceId);
-                                 return (
-                                   <button
-                                     key={hero.instanceId}
-                                     onClick={() => {
-                                       if (isDeployed || hero.needsRepair) return;
-                                       if (isFull) { setShowSquadFullWarning(true); return; }
-                                       deployHero(hero.instanceId);
-                                     }}
-                                     onPointerDown={(e) => handlePointerDown(hero, e)}
-                                     onPointerUp={handlePointerUp}
-                                     onPointerLeave={handlePointerUp}
-                                     onContextMenu={(e) => e.preventDefault()}
-                                     className={`roster-card-deploy bg-[var(--color-game-panel)] p-1 pixel-border-sm flex flex-col items-center relative ${isDeployed ? 'is-deployed opacity-50' : ''} ${hero.needsRepair ? 'opacity-40 grayscale-[0.5]' : ''}`}
-                                     style={{ borderColor: isDeployed ? '#444' : hero.color }}
-                                   >
-                                     {isDeployed && (
-                                       <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                                          <span className={`text-[6px] px-1 ${hero.needsRepair ? 'text-red-400 bg-black/80' : 'text-blue-400 bg-black/70'}`}>
-                                            {hero.needsRepair ? t('raid.broken') : t('raid.inSquad')}
-                                          </span>
-                                       </div>
-                                     )}
-                                     {!isDeployed && hero.needsRepair && (
-                                       <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/50 pointer-events-none">
-                                          <span className="text-[12px] filter drop-shadow">🔧</span>
-                                       </div>
-                                     )}
-                                     <div className="w-9 h-9 flex items-center justify-center mb-0.5 relative" style={{ backgroundColor: hero.imageColor }}>
-                                       <div className="w-7 h-7"><Sprite char={hero} /></div>
-                                       <div className="absolute top-0 left-0 bg-black/60 flex items-center justify-center w-3.5 h-3.5 text-[6px] z-10">
-                                         {ELEMENT_ICONS[hero.element]}
-                                       </div>
-                                     </div>
-                                     <div className="flex flex-col items-center w-full gap-[1px] text-[7px] font-bold leading-none">
-                                       <div className="flex gap-1">
-                                         <span className="text-red-400">HP:{hero.hp}</span>
-                                         <span className="text-orange-400">ATK:{hero.atk}</span>
-                                       </div>
-                                       <div className="flex gap-1">
-                                         <span className="text-blue-400">DEF:{hero.def}</span>
-                                         <span className="text-emerald-400">SPD:{hero.spd}</span>
-                                       </div>
-                                     </div>
-                                   </button>
-                                 );
-                              })}
-                           </div>
+                        <div 
+                          key={boss.id} 
+                          className={`relative w-full pixel-border p-3 transition-all ${
+                            isUnlocked 
+                              ? 'opacity-100 cursor-pointer hover:scale-[1.02]' 
+                              : 'opacity-50 grayscale cursor-not-allowed'
+                          }`}
+                          style={{ 
+                            backgroundColor: `${boss.color}15`, 
+                            borderColor: isUnlocked ? boss.color : '#333' 
+                          }}
+                          onClick={() => {
+                            if (isUnlocked) {
+                              miningData?.selectBoss?.(idx);
+                              setRaidView('room');
+                            }
+                          }}
+                        >
+                          {!isUnlocked && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10 transition-opacity">
+                              <span className="text-3xl drop-shadow-md">🔒</span>
+                            </div>
+                          )}
+
+                          <div className="flex gap-3 items-center">
+                            <div className="w-16 h-20 bg-black/40 pixel-border-sm flex-shrink-0 relative overflow-hidden" style={{ borderColor: boss.color }}>
+                              <img src={boss.image} alt={boss.name} className="w-full h-full object-cover image-pixelated" />
+                              <div className="absolute top-0 right-0 bg-black/70 text-[6px] px-1 text-white">T{boss.tier}</div>
+                            </div>
+
+                            <div className="flex-1 flex flex-col justify-center">
+                              <h3 className="text-sm font-bold" style={{ color: boss.color }}>{boss.name}</h3>
+                              <div className="bg-black/50 p-1.5 mt-1 pixel-border-sm text-[8px]">
+                                <p className="text-gray-300">{t('raid.bonus')}: <span className="text-green-400 font-bold">{boss.bonusLabel}</span></p>
+                              </div>
+                              <div className="text-[7px] text-gray-500 mt-2 px-1">
+                                {t('raid.selectToBattle')}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
-                    });
-                  })()}
-                </div>
+                    })}
+                  </div>
+                </section>
+              ) : (
+                <>
+                  {/* Boss Info Panel */}
+                  <section className="flex flex-col items-center mb-2 px-2">
+                    <div className="w-full flex justify-between items-center mb-4">
+                      <button 
+                        onClick={() => setRaidView('list')} 
+                        className="py-1 px-3 bg-black/40 text-gray-400 hover:text-white hover:bg-black/60 pixel-border-sm text-[7px] transition-colors"
+                      >
+                        ← {t('raid.changeBoss')}
+                      </button>
+                      <div className="text-right">
+                        <div className="text-[10px] font-bold" style={{ color: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color }}>
+                          {BOSSES[miningData?.miningState?.currentBossIndex || 0]?.name}
+                        </div>
+                        <div className="text-[6px] text-gray-500 uppercase tracking-tighter">Current Target</div>
+                      </div>
+                    </div>
+
+                    <div className="relative w-40 h-48 mb-4">
+                      <div 
+                        className="w-full h-full pixel-border flex items-center justify-center overflow-hidden relative bg-black/20 animate-float"
+                        style={{ borderColor: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color }}
+                      >
+                        <img 
+                          src={BOSSES[miningData?.miningState?.currentBossIndex || 0]?.image} 
+                          alt="Boss" 
+                          className="w-full h-full object-cover image-pixelated relative z-10"
+                        />
+                        {(miningData?.miningState?.zones?.[miningData?.miningState?.currentBossIndex || 0]?.hp ?? 1) <= 0 && (
+                          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
+                            <span className="text-white text-[8px] font-black tracking-widest bg-emerald-600 px-3 py-1 animate-bounce">DEFEATED!</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Boss HP Bar */}
+                    <div className="w-full max-w-xs bg-gray-900 h-6 pixel-border-sm relative overflow-hidden">
+                      <div 
+                        className="h-full transition-all duration-300 shadow-[0_0_10px_rgba(255,0,0,0.5)]" 
+                        style={{ 
+                          width: `${((miningData?.miningState?.zones?.[miningData?.miningState?.currentBossIndex || 0]?.hp ?? 0) / (BOSSES[miningData?.miningState?.currentBossIndex || 0]?.baseHp || 1)) * 100}%`, 
+                          backgroundColor: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color 
+                        }}
+                      ></div>
+                      <div className="absolute inset-0 flex items-center justify-center text-white text-[8px] font-black drop-shadow-md">
+                        {Math.floor(miningData?.miningState?.zones?.[miningData?.miningState?.currentBossIndex || 0]?.hp ?? 0).toLocaleString()} / {(BOSSES[miningData?.miningState?.currentBossIndex || 0]?.baseHp || 0).toLocaleString()} HP
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* --- INTEGRATED MINING FACILITY --- */}
+                  <IdleMining 
+                    miningData={miningData}
+                    userHeroes={userHeroes}
+                    executeGamePayment={executeGamePayment}
+                    triggerModal={triggerModal}
+                    sendTelegramNotification={sendTelegramNotification}
+                    onClaim={(amount) => {
+                      setGameBalance(prev => prev + amount);
+                      triggerModal({
+                        type: 'alert',
+                        title: 'CLAIM SUCCESSFUL',
+                        message: `You successfully claimed ${amount.toFixed(4)} TON from the Idle Mining Facility!`,
+                        confirmText: 'OK'
+                      });
+                    }}
+                  />
+                </>
               )}
-            </section>
-              </>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
         {/* GACHA TAB */}
         {activeTab === 'gacha' && (
@@ -1366,49 +983,7 @@ function App() {
                   </button>
               </div>
 
-              {/* Gacha Lock Overlay for Unconnected Wallets */}
-              {!wallet && (
-                <div className="absolute inset-x-0 bottom-0 top-[80px] z-[40] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md p-6 text-center animate-in fade-in duration-500">
-                  <div className="w-20 h-20 mb-6 bg-gradient-to-br from-gray-700 to-gray-900 rounded-2xl flex items-center justify-center shadow-2xl border border-white/10">
-                    <span className="text-4xl grayscale opacity-50">🔒</span>
-                  </div>
-                  <h3 className="text-white text-lg font-black uppercase tracking-widest mb-3">
-                    GACHA RESTRICTED
-                  </h3>
-                  <p className="text-gray-400 text-[10px] font-bold uppercase leading-relaxed max-w-[220px] mb-8">
-                    Connect your TON wallet to access the Gacha system and summon new robots.
-                  </p>
-                  
-                  {/* Reuse the custom connect button style if needed, but normally TonConnect button is nearby */}
-                  <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                    <p className="text-yellow-500 text-[9px] font-black uppercase animate-pulse">
-                      Connect Wallet to Start
-                    </p>
-                  </div>
-                </div>
-              )}
 
-              {/* Gacha Lock Overlay for Unconnected Wallets */}
-              {!wallet && (
-                <div className="absolute inset-x-0 bottom-0 top-[80px] z-[40] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md p-6 text-center animate-in fade-in duration-500">
-                  <div className="w-20 h-20 mb-6 bg-gradient-to-br from-gray-700 to-gray-900 rounded-2xl flex items-center justify-center shadow-2xl border border-white/10">
-                    <span className="text-4xl grayscale opacity-50">🔒</span>
-                  </div>
-                  <h3 className="text-white text-lg font-black uppercase tracking-widest mb-3">
-                    GACHA RESTRICTED
-                  </h3>
-                  <p className="text-gray-400 text-[10px] font-bold uppercase leading-relaxed max-w-[220px] mb-8">
-                    Connect your TON wallet to access the Gacha system and summon new robots.
-                  </p>
-                  
-                  {/* Reuse the custom connect button style if needed, but normally TonConnect button is nearby */}
-                  <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                    <p className="text-yellow-500 text-[9px] font-black uppercase animate-pulse">
-                      Connect Wallet to Start
-                    </p>
-                  </div>
-                </div>
-              )}
 
               {/* Featured Drops Area (Fixed 2-Line Layout with ATK, YIELD & PULSE) */}
               <div className="w-full mb-4 pt-4 pb-1 px-4">
@@ -1439,7 +1014,7 @@ function App() {
                                  ATK: {c.atk}
                                </span>
                                <span className="text-[8px] text-yellow-400 font-black tracking-tight font-mono">
-                                 {(c.atk * BASE_RATE_PER_ATK).toFixed(3)} TON/D
+                                 {(c.atk * BASE_RATE_PER_ATK).toFixed(2)} TON/D
                                </span>
                             </div>
                          </div>
@@ -1448,65 +1023,36 @@ function App() {
                  </div>
               </div>
 
-              {/* Summon Interactive Icons (Moved up 1 line) */}
-              <div className="w-full flex justify-around gap-2 px-2 mt-6 pb-2">
-                 {/* Option 1: x1 */}
-                 <button 
-                   onClick={() => handlePull(1)}
-                   disabled={isPulling}
-                   className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isPulling ? 'opacity-50' : ''}`}
-                 >
-                   <div className="relative">
-                     <img src="/gacha_icon.png" alt="Summon x1" className="w-16 h-16 object-contain image-pixelated animate-float" />
-                     <div className="absolute -bottom-1 -right-1 bg-blue-600 text-white text-[5px] px-1 border border-white font-bold">x1</div>
-                   </div>
-                   <div className="flex items-center gap-2 mt-2 bg-black/60 px-2 py-0.5 pixel-border-sm min-w-[60px] justify-center">
-                     <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
-                     <span className="text-white text-xs font-bold leading-none">1</span>
-                   </div>
-                 </button>
-
-                 {/* Option 2: x5 */}
-                 <button 
-                   onClick={() => handlePull(5)}
-                   disabled={isPulling}
-                   className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isPulling ? 'opacity-50' : ''}`}
-                 >
-                   <div className="relative">
-                     <div className="absolute -bottom-1 -right-1 flex flex-col items-end gap-0.5 z-20">
-                       <div className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[3px] font-bold px-1 py-0.2 border border-white/50 rounded shadow-md animate-pulse uppercase text-center">
-                         SR+1
+              {/* Tier Purchase Interactive Icons */}
+              <div className="w-full flex justify-center flex-wrap gap-x-2 gap-y-4 px-2 mt-6 pb-2">
+                 {['Common', 'Rare', 'SR', 'Epic', 'Legendary'].map((tier) => {
+                   const cost = TIER_PRICING[tier];
+                   const colorMap = { Common: '#bdc3c7', Rare: '#3498db', SR: '#2ecc71', Epic: '#9b59b6', Legendary: '#f1c40f' };
+                   const color = colorMap[tier];
+                   
+                   return (
+                     <button 
+                       key={tier}
+                       onClick={() => handleBuyTier(tier)}
+                       disabled={isPulling}
+                       className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 w-[30%] ${isPulling ? 'opacity-50' : ''}`}
+                     >
+                       <div className="relative">
+                         <img src="/gacha_icon.png" alt={`Buy ${tier}`} className="w-14 h-14 object-contain image-pixelated animate-float drop-shadow-md" />
+                         <div 
+                           className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-white text-[6px] px-1.5 py-0.5 border font-black uppercase text-nowrap"
+                           style={{ backgroundColor: color, borderColor: 'white', textShadow: '1px 1px 0 #000' }}
+                         >
+                           {tier === 'SR' ? 'SUPER RARE' : tier}
+                         </div>
                        </div>
-                       <div className="bg-blue-600 text-white text-[5px] px-1 border border-white font-bold">x5</div>
-                     </div>
-                     <img src="/gacha_icon.png" alt="Summon x5" className="w-16 h-16 object-contain image-pixelated animate-float" />
-                   </div>
-                   <div className="flex items-center gap-2 mt-2 bg-black/60 px-2 py-0.5 pixel-border-sm min-w-[60px] justify-center">
-                     <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
-                     <span className="text-white text-xs font-bold leading-none">5</span>
-                   </div>
-                 </button>
-
-                 {/* Option 3: x10 */}
-                 <button 
-                   onClick={() => handlePull(10)}
-                   disabled={isPulling}
-                   className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 ${isPulling ? 'opacity-50' : ''}`}
-                 >
-                   <div className="relative">
-                     <div className="absolute -bottom-1 -right-1 flex flex-col items-end gap-0.5 z-20">
-                       <div className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white text-[3px] font-bold px-1 py-0.2 border border-white/50 rounded shadow-md animate-pulse uppercase text-center">
-                         EPIC+1
+                       <div className="flex items-center gap-1.5 mt-2 bg-black/60 px-2 py-1 pixel-border-sm min-w-[50px] justify-center" style={{ borderColor: color }}>
+                         <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
+                         <span className="text-white text-xs font-bold leading-none">{cost}</span>
                        </div>
-                       <div className="bg-purple-600 text-white text-[5px] px-1 border border-white font-bold">x10</div>
-                     </div>
-                     <img src="/gacha_icon.png" alt="Summon x10" className="w-16 h-16 object-contain image-pixelated animate-float" />
-                   </div>
-                   <div className="flex items-center gap-2 mt-2 bg-black/60 px-2 py-0.5 pixel-border-sm min-w-[60px] justify-center">
-                     <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
-                     <span className="text-white text-xs font-bold leading-none">10</span>
-                   </div>
-                 </button>
+                     </button>
+                   );
+                 })}
               </div>
             </div>
 
@@ -1554,12 +1100,7 @@ function App() {
                             {char.grade}
                          </div>
                        )}
-                       {/* Element Badge */}
-                       {char.element && (
-                         <div className="absolute top-0 left-0 w-3.5 h-3.5 flex items-center justify-center text-[7px] bg-black/40 rounded-br-[2px]">
-                            {ELEMENT_ICONS[char.element]}
-                         </div>
-                       )}
+                       {/* Element Badge Removed */}
                        {pullResult.length === 1 && <span className="text-center text-[8px] mt-1">{char.name}</span>}
                     </div>
                   ))}
@@ -1590,18 +1131,6 @@ function App() {
                   <img src="/Robot/epic_16.png" alt="Hero Icon" className="w-5 h-5 image-pixelated drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]" />
                   {t('heroes.title')}
                 </h2>
-                {heroCount > 0 && (
-                  <div className="flex gap-2">
-                    {repairAllBill.damagedCount > 0 && (
-                      <button 
-                        onClick={() => { setActiveRepairType('all'); setShowRepairModal(true); }}
-                        className="text-[9px] font-bold text-orange-400 hover:text-orange-300 bg-orange-500/20 px-3 py-1.5 border-2 border-orange-500/40 rounded shadow-[0_0_10px_rgba(251,146,60,0.2)] transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
-                      >
-                        {t('heroes.repairAll')} (x{repairAllBill.damagedCount})
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
               <span className="text-[8px] text-gray-400">{heroCount} / {maxCapacity}</span>
             </div>
@@ -1712,10 +1241,6 @@ function App() {
                                 <Sprite char={hero} />
                               </div>
                             </div>
-                            {/* Element Icon - Moved below Level Badge */}
-                            <div className="absolute top-2 left-0 w-3.5 h-3.5 bg-black/80 flex items-center justify-center rounded-sm text-[7px] z-10 border border-white/5">
-                              {ELEMENT_ICONS[hero.element]}
-                            </div>
                             {/* Name */}
                             <span className="text-[5px] text-gray-400 truncate w-full text-center leading-tight mb-0.5">{hero.name}</span>
                             {/* Stats */}
@@ -1747,6 +1272,8 @@ function App() {
             userHeroes={userHeroes}
             pvpStats={pvpStats}
             setPvpStats={setPvpStats}
+            pvpQuota={pvpQuota}
+            setPvpQuota={setPvpQuota}
             gameBalance={gameBalance}
             setGameBalance={setGameBalance}
             setDevBalance={setDevBalance}
@@ -1761,15 +1288,18 @@ function App() {
           <ArcadeBetting 
             pvpStats={pvpStats}
             setPvpStats={setPvpStats}
+            pvpQuota={pvpQuota}
+            setPvpQuota={setPvpQuota}
             gameBalance={gameBalance}
             setGameBalance={setGameBalance}
             setDevBalance={setDevBalance}
             executeRealTonPayment={executeRealTonPayment}
-            triggerModal={triggerModal}
             socket={socketRef.current}
             poolSyncData={poolData}
           />
         )}
+
+
 
         {/* EARN / WITHDRAW TAB */}
         {activeTab === 'earn' && (
@@ -2003,8 +1533,7 @@ function App() {
                   style={{ backgroundColor: getSpriteBg(selectedHero.rarity), borderColor: selectedHero.color, boxShadow: `inset 0 0 20px ${selectedHero.color}26` }}>
                   <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 2px, ${selectedHero.color} 2px, ${selectedHero.color} 4px)` }}></div>
                   <div className="w-24 h-24 relative z-10 scale-125 mb-2"><Sprite char={selectedHero} /></div>
-                  <div className="absolute top-1.5 left-1.5 bg-black/70 px-1 py-0.5 rounded border border-white/20 text-[6px] font-bold z-20 flex gap-1 items-center">
-                    <span className="text-[8px]">{ELEMENT_ICONS[selectedHero.element]}</span>
+                   <div className="absolute top-1.5 left-1.5 bg-black/70 px-1 py-0.5 rounded border border-white/20 text-[6px] font-bold z-20 flex gap-1 items-center">
                     <span style={{ color: selectedHero.color }}>{selectedHero.rarity}</span>
                   </div>
                 </div>
@@ -2412,44 +1941,9 @@ function App() {
         </div>
       )}
 
-      {/* Squad Full Warning */}
-      {showSquadFullWarning && (
-        <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
-          <div className="bg-[var(--color-game-panel)] p-4 pixel-border w-full max-w-xs text-center">
-            <div className="text-3xl mb-3">⚔️</div>
-            <h3 className="text-[#e74c3c] text-sm mb-3">{t('modal.squadFull')}</h3>
-            <p className="text-gray-300 text-[8px] mb-4">
-              {t('modal.squadFullMsg', { max: maxSquadSize }).split('\n').map((line, i) => <span key={i}>{line}{i === 0 && <br/>}</span>)}
-            </p>
-            <button 
-              onClick={() => setShowSquadFullWarning(false)}
-              className="pixel-button bg-gray-600 text-white px-6 py-2 text-[9px] pixel-border-sm"
-            >
-              {t('modal.ok')}
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* Claim Result Modal */}
-      {showClaimResult !== null && (
-        <div className="fixed inset-0 z-[90] bg-black/85 flex items-center justify-center p-4">
-          <div className="bg-[var(--color-game-panel)] p-4 pixel-border w-full max-w-xs text-center" style={{ borderColor: '#2ecc71' }}>
-            <div className="text-3xl mb-3">💰</div>
-            <h3 className="text-emerald-400 text-sm mb-3">{t('modal.rewardClaimed')}</h3>
-            <div className="bg-black/50 p-3 pixel-border-sm mb-4">
-              <div className="text-[var(--color-pixel)] text-lg font-bold">{showClaimResult.toFixed(4)} TON</div>
-              <div className="text-[7px] text-gray-400 mt-1">{t('modal.addedToBalance')}</div>
-            </div>
-            <button 
-              onClick={() => setShowClaimResult(null)}
-              className="pixel-button bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 text-[9px] pixel-border-sm"
-            >
-              {t('modal.awesome')}
-            </button>
-          </div>
-        </div>
-      )}
+
+
 
       {/* Repair Modal Pop-up */}
       {showRepairModal && (
@@ -2459,7 +1953,7 @@ function App() {
             {/* Header */}
             <div className="bg-[#3b1f24] px-4 py-3 border-b border-[#4d252a] flex justify-between items-center shadow-md">
               <h2 className="text-[14px] font-black tracking-wider text-[#ff6b70] flex items-center gap-2 uppercase">
-                <span>⚙️</span> {activeRepairType === 'all' ? t('repair.repairAllTitle') : t('repair.repairSquadTitle')} ({currentRepairBill.damagedCount}/{activeRepairType === 'all' ? heroCount : squadCount})
+                <span>⚙️</span> {activeRepairType === 'all' ? t('repair.repairAllTitle') : t('repair.repairSquadTitle')} ({currentRepairBill.damagedCount}/{activeRepairType === 'all' ? heroCount : 0})
               </h2>
               <button 
                 onClick={() => setShowRepairModal(false)}
@@ -2527,10 +2021,8 @@ function App() {
           style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {[
-            { id: 'heroes', icon: IconHeroes, label: t('nav.heroes'), badge: heroCount > 0 ? heroCount : null },
             { id: 'gacha', icon: IconGacha, label: t('nav.gacha') },
             { id: 'raid', icon: IconBattle, label: t('nav.battle') },
-            { id: 'rank', icon: IconArena, label: t('nav.pvp') },
             { id: 'arcade', icon: IconArcade, label: t('nav.arcade') },
             { id: 'referral', icon: IconReferral, label: t('nav.referral') },
             { id: 'earn', icon: IconEarn, label: t('nav.withdraw') },
@@ -2764,10 +2256,8 @@ function App() {
                   </span>
                 )}
               </div>
-              {/* Element Icon */}
+               {/* Element removed */}
               <div className="flex items-center gap-1.5">
-                <span className="text-base">{ELEMENT_ICONS[longPressHero.element]}</span>
-                <span className="text-[8px] font-bold tracking-wider" style={{ color: ELEMENT_COLORS[longPressHero.element] }}>{longPressHero.element}</span>
               </div>
             </div>
 

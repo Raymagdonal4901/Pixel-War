@@ -69,15 +69,11 @@ export function useHeroRoster() {
             hpMult: hero.hpMult ?? 1.0,
             atkMult: hero.atkMult ?? 1.0,
             defMult: hero.defMult ?? 1.0,
-            spdMult: hero.spdMult ?? 1.0,
-            element: hero.element ?? ['PLASMA', 'CRYO', 'BIO'][Math.floor(Math.random() * 3)]
+            spdMult: hero.spdMult ?? 1.0
           };
         }
         
-        // Final fallback for missing element in otherwise migrated unit
-        if (!hero.element) {
-           hero.element = ['PLASMA', 'CRYO', 'BIO'][Math.floor(Math.random() * 3)];
-        }
+
 
         // Migration: add base stats if missing (for upgrade system)
         if (hero.baseHp === undefined) {
@@ -139,7 +135,6 @@ export function useHeroRoster() {
       baseDef: char.def,
       baseSpd: char.spd,
       grade: char.grade,
-      element: char.element || ['PLASMA', 'CRYO', 'BIO'][Math.floor(Math.random() * 3)],
       hpMult: char.hpMult,
       atkMult: char.atkMult,
       defMult: char.defMult,
@@ -271,7 +266,6 @@ export function useHeroRoster() {
       baseDef: picked.def,
       baseSpd: picked.spd,
       grade: picked.grade,
-      element: picked.element || ['PLASMA', 'CRYO', 'BIO'][Math.floor(Math.random() * 3)],
       color: picked.color,
       imageColor: picked.imageColor,
       imagePath: picked.imagePath,

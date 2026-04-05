@@ -10,6 +10,34 @@ export function useGacha() {
   const [legendaryPity, setLegendaryPity] = useState(0);
   const [totalPulls, setTotalPulls] = useState(0);
 
+  // New Direct Buy Function
+  const buyTier = (rarity) => {
+    const pool = CHARACTERS.filter(c => c.rarity === rarity);
+    const baseRobot = pickRandom(pool);
+
+    // Forces exact ATK as defined in tokenomics, no multiplier variance
+    const finalHp = baseRobot.hp;
+    const finalAtk = baseRobot.atk;
+    const finalDef = baseRobot.def;
+    const finalSpd = baseRobot.spd;
+
+    setTotalPulls(prev => prev + 1);
+
+    return [{
+      ...baseRobot,
+      hp: finalHp,
+      maxHp: finalHp,
+      atk: finalAtk,
+      def: finalDef,
+      spd: finalSpd,
+      grade: 'B',
+      hpMult: 1.0,
+      atkMult: 1.0,
+      defMult: 1.0,
+      spdMult: 1.0
+    }];
+  };
+
   const pullMultiple = (count) => {
     let currentSrPity = srPity;
     let currentEpicPity = epicPity;
@@ -80,23 +108,34 @@ export function useGacha() {
       const pool = CHARACTERS.filter(c => c.rarity === rollRarity);
       const baseRobot = pickRandom(pool);
       
-      // Stat Multipliers: 0.90 - 1.15
+      // Stat Multipliers: HP/DEF/SPD are random 0.90 - 1.15
       const hpMult = (Math.floor(Math.random() * (115 - 90 + 1)) + 90) / 100;
-      const atkMult = (Math.floor(Math.random() * (115 - 90 + 1)) + 90) / 100;
       const defMult = (Math.floor(Math.random() * (115 - 90 + 1)) + 90) / 100;
       const spdMult = (Math.floor(Math.random() * (115 - 90 + 1)) + 90) / 100;
+
+      // ATK and Grade calculation based on explicit User Spec
+      const gradeRoll = Math.floor(Math.random() * 100); // 0-99
+      let grade = 'B';
+      let atkMult = 1.0;
+      
+      if (gradeRoll < 40) { // 40% chance C (-20%)
+         grade = 'C';
+         atkMult = 0.80; 
+      } else if (gradeRoll < 75) { // 35% chance B (Normal)
+         grade = 'B';
+         atkMult = 1.00;
+      } else if (gradeRoll < 95) { // 20% chance A (+15%)
+         grade = 'A';
+         atkMult = 1.15;
+      } else { // 5% chance S (+30%)
+         grade = 'S';
+         atkMult = 1.30;
+      }
 
       const finalHp = Math.round(baseRobot.hp * hpMult);
       const finalAtk = Math.round(baseRobot.atk * atkMult);
       const finalDef = Math.round(baseRobot.def * defMult);
       const finalSpd = Math.round(baseRobot.spd * spdMult);
-
-      // Grade calculation based on Average of all 4 multipliers
-      const avgMult = (hpMult + atkMult + defMult + spdMult) / 4;
-      let grade = 'B';
-      if (avgMult >= 1.10) grade = 'S';
-      else if (avgMult > 1.00) grade = 'A';
-      else if (avgMult < 0.95) grade = 'C';
 
       results.push({
         ...baseRobot,
@@ -122,5 +161,5 @@ export function useGacha() {
     return results;
   };
 
-  return { pullMultiple, epicPity, legendaryPity, srPity, totalPulls };
+  return { buyTier, pullMultiple, epicPity, legendaryPity, srPity, totalPulls };
 }

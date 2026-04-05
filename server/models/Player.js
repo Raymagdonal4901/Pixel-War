@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 
+import { BOSSES } from '../tokenomics.js';
+
 const playerSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -14,6 +16,32 @@ const playerSchema = new mongoose.Schema({
   gameBalance: {
     type: Number,
     default: 0
+  },
+  pendingYield: {
+    type: Number,
+    default: 0
+  },
+  lastMiningSync: {
+    type: Date,
+    default: Date.now
+  },
+  bossStates: {
+    type: [{
+      tier: Number,
+      currentHp: Number,
+      baseHp: Number,
+      name: String,
+      multiplier: Number,
+      pendingYield: { type: Number, default: 0 }
+    }],
+    default: () => BOSSES.map(b => ({
+      tier: b.tier,
+      currentHp: b.baseHp,
+      baseHp: b.baseHp,
+      name: b.name,
+      multiplier: b.multiplier,
+      pendingYield: 0
+    }))
   },
   pvpStats: {
     count: { type: Number, default: 0 },

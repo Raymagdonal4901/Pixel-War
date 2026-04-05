@@ -3,14 +3,21 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import cron from 'node-cron';
+import process from 'process';
 
 dotenv.config();
 import connectDB from './db.js';
 import Player from './models/Player.js';
 import MatchHistory from './models/MatchHistory.js';
+import MiningSlot from './models/MiningSlot.js';
+import { TIER_PRICING, TIER_TO_RARITY, MINING_RECHARGE_FEE } from './tokenomics.js';
+import { processHourlySync, forceSync, getMiningState } from './miningEngine.js';
 
 // Connect to MongoDB
-connectDB();
+connectDB().then(() => {
+  console.log('✅ Base DB Connected.');
+});
 
 const app = express();
 app.use(cors());
@@ -31,8 +38,7 @@ const DEV_FEE = 0.10;
 let pool = { red: SEED_AMOUNT, blue: SEED_AMOUNT };
 
 // ═══════════════════════════════════════════════════════════
-// Online Players Registry — stores real player info
-// Key: socket.id, Value: { name, wallet, joinedAt, socketId }
+// Online Players Registry
 // ═══════════════════════════════════════════════════════════
 const onlinePlayers = new Map();
 
@@ -59,20 +65,12 @@ const broadcastOnlinePlayers = async () => {
     }
 };
 
-// Helper to get time until next even hour locally
-const getNextEvenHourMs = () => {
+// Helper to get time until next hour locally
+const getNextHourMs = () => {
   const d = new Date();
   let nextHour = d.getHours() + 1;
-  if (nextHour % 2 !== 0) nextHour += 1;
-
   const nextDate = new Date(d);
   nextDate.setHours(nextHour, 0, 0, 0);
-
-  if (nextHour >= 24) {
-    nextDate.setDate(nextDate.getDate() + 1);
-    nextDate.setHours(0, 0, 0, 0);
-  }
-
   return nextDate.getTime() - d.getTime();
 };
 
@@ -80,7 +78,7 @@ let matchStatus = 'OPEN';
 let matchmakingQueues = { '1v1': [], '3v3': [] };
 
 const updateClock = () => {
-    const msUntil = getNextEvenHourMs();
+    const msUntil = getNextHourMs();
     const secondsUntil = Math.floor(msUntil / 1000);
 
     if (secondsUntil <= 60 && secondsUntil > 0) {
@@ -94,7 +92,16 @@ const updateClock = () => {
     return { secondsUntil, status: matchStatus };
 };
 
-// Tick every second to broadcast the global pool and timer
+// ═══════════════════════════════════════════════════════════
+// CRON JOB — Hourly Mining Sync (every hour at minute 0)
+// ═══════════════════════════════════════════════════════════
+cron.schedule('0 * * * *', async () => {
+  await processHourlySync();
+});
+
+console.log('⏰ [CRON] Hourly mining sync scheduled (minute 0 of every hour).');
+
+// Tick every second for arcade pool
 setInterval(() => {
   const clock = updateClock();
 
@@ -112,23 +119,21 @@ setInterval(() => {
   });
 }, 1000);
 
+// ═══════════════════════════════════════════════════════════
+// SOCKET CONNECTIONS
+// ═══════════════════════════════════════════════════════════
 io.on('connection', (socket) => {
   console.log(`[Socket] Player connected: ${socket.id} (Total: ${onlinePlayers.size + 1})`);
 
-  // ═══════════════════════════════════════════════════════════
-  // Player Registration — frontend sends player info on connect
-  // ═══════════════════════════════════════════════════════════
+  // ─── Player Registration ───
   socket.on('registerPlayer', async (data) => {
-    // data: { name: string, wallet: string }
     const walletAddr = data?.wallet;
     if (!walletAddr) return;
 
     try {
-      // Find or Create Player in MongoDB
       let player = await Player.findOne({ wallet: walletAddr });
       
       if (player) {
-        // Update name if changed
         if (data.name && player.name !== data.name) {
           player.name = data.name;
         }
@@ -138,30 +143,34 @@ io.on('connection', (socket) => {
         player = await Player.create({
           name: data.name || 'Player1',
           wallet: walletAddr,
-          gameBalance: 0, // Initial balance
+          gameBalance: 0,
+          pendingYield: 0,
+          lastMiningSync: new Date(),
           lastSeen: new Date()
         });
       }
+
+      // Initialize mining slots if new player
+      await MiningSlot.initializeForPlayer(walletAddr, TIER_PRICING);
 
       const playerInfo = {
         socketId: socket.id,
         name: player.name,
         wallet: `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}`,
-        fullWallet: player.wallet, // Keep full for internal logic
+        fullWallet: player.wallet,
         joinedAt: Date.now(),
         dbId: player._id
       };
 
       onlinePlayers.set(socket.id, playerInfo);
-      console.log(`[Register] ${playerInfo.name} (${socket.id}) registered from DB. Online: ${onlinePlayers.size}`);
+      console.log(`[Register] ${playerInfo.name} (${socket.id}) registered. Online: ${onlinePlayers.size}`);
 
-      // Broadcast updated player list
       broadcastOnlinePlayers();
 
-      // Send player's DB status back to them
       socket.emit('playerStatus', {
         balance: player.gameBalance,
-        pvpStats: player.pvpStats
+        pvpStats: player.pvpStats,
+        pendingYield: player.pendingYield
       });
 
     } catch (err) {
@@ -178,11 +187,240 @@ io.on('connection', (socket) => {
     onlineCount: onlinePlayers.size
   });
 
-  // Send current online players list to the new connection
   socket.emit('onlinePlayers', {
     count: onlinePlayers.size,
     players: getOnlinePlayersList()
   });
+
+  // ═══════════════════════════════════════════════════════════
+  // MINING SOCKET EVENTS
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── Get Mining State ───
+  socket.on('mining:getState', async (data) => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = data?.wallet || playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    try {
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+    } catch (err) {
+      console.error('mining:getState error:', err);
+    }
+  });
+
+  // ─── Assign Mech ───
+  socket.on('mining:assignMech', async (data) => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const { bossZone, slotIndex, heroData } = data;
+    if (!bossZone || !slotIndex || !heroData) return;
+
+    try {
+      // Force sync first
+      await forceSync(wallet);
+
+      // Validate rarity
+      const requiredRarity = TIER_TO_RARITY[bossZone];
+      if (heroData.rarity !== requiredRarity) {
+        socket.emit('mining:error', { message: `Only ${requiredRarity} units allowed in Zone T${bossZone}` });
+        return;
+      }
+
+      // Check slot exists and is unlocked
+      const slot = await MiningSlot.findOne({ wallet, bossZone, slotIndex });
+      if (!slot || !slot.unlocked) {
+        socket.emit('mining:error', { message: 'Slot not found or locked' });
+        return;
+      }
+
+      // Check hero not already assigned elsewhere
+      const alreadyAssigned = await MiningSlot.findOne({ wallet, 'heroData.instanceId': heroData.instanceId });
+      if (alreadyAssigned) {
+        socket.emit('mining:error', { message: 'This hero is already mining' });
+        return;
+      }
+
+      // Assign
+      slot.heroData = {
+        instanceId: heroData.instanceId,
+        name: heroData.name,
+        atk: heroData.atk,
+        rarity: heroData.rarity,
+        imagePath: heroData.imagePath
+      };
+      slot.battery = 100;
+      slot.assignedAt = new Date();
+      await slot.save();
+
+      console.log(`[Mining] ${wallet.slice(0,8)}... assigned ${heroData.name} to T${bossZone} slot ${slotIndex}`);
+
+      // Send updated state
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+    } catch (err) {
+      console.error('mining:assignMech error:', err);
+    }
+  });
+
+  // ─── Remove Mech ───
+  socket.on('mining:removeMech', async (data) => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const { bossZone, slotIndex } = data;
+
+    try {
+      const slot = await MiningSlot.findOne({ wallet, bossZone, slotIndex });
+      if (!slot) return;
+
+      if (slot.heroData && slot.assignedAt) {
+        const currentTime = Date.now();
+        const stakedTime = slot.assignedAt.getTime();
+        const oneHourInMs = 60 * 60 * 1000;
+        const timeElapsed = currentTime - stakedTime;
+
+        if (timeElapsed < oneHourInMs) {
+          const timeLeftMs = oneHourInMs - timeElapsed;
+          const minutesLeft = Math.ceil(timeLeftMs / (60 * 1000));
+          socket.emit('mining:error', { message: `ระบบป้องกันสแปม: กรุณารออีก ${minutesLeft} นาที จึงจะสามารถถอดหุ่นยนต์ได้` });
+          return;
+        }
+      }
+
+      await forceSync(wallet);
+
+      slot.heroData = null;
+      slot.assignedAt = null;
+      await slot.save();
+
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+    } catch (err) {
+      console.error('mining:removeMech error:', err);
+    }
+  });
+
+  // ─── Unlock Slot ───
+  socket.on('mining:unlockSlot', async (data) => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const { bossZone, slotIndex } = data;
+
+    try {
+      await forceSync(wallet);
+
+      const slot = await MiningSlot.findOne({ wallet, bossZone, slotIndex });
+      if (!slot) return;
+      if (slot.unlocked) return;
+
+      const player = await Player.findOne({ wallet });
+      if (!player || player.gameBalance < slot.unlockCost) {
+        socket.emit('mining:error', { message: `Insufficient balance. Need ${slot.unlockCost} TON` });
+        return;
+      }
+
+      // Deduct cost
+      player.gameBalance -= slot.unlockCost;
+      await player.save();
+
+      slot.unlocked = true;
+      await slot.save();
+
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+      socket.emit('playerStatus', { balance: player.gameBalance });
+    } catch (err) {
+      console.error('mining:unlockSlot error:', err);
+    }
+  });
+
+  // ─── Claim Yield ───
+  socket.on('mining:claim', async () => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    try {
+      // Force sync to calculate all pending yield up to now
+      const player = await forceSync(wallet);
+      if (!player) return;
+
+      // Calculate total from all boss sectors
+      let totalToClaim = 0;
+      if (player.bossStates && player.bossStates.length > 0) {
+        player.bossStates.forEach(bs => {
+          totalToClaim += (bs.pendingYield || 0);
+          bs.pendingYield = 0;
+        });
+      }
+
+      if (totalToClaim <= 0) {
+        socket.emit('mining:error', { message: 'Nothing to claim' });
+        return;
+      }
+
+      player.gameBalance += totalToClaim;
+      player.markModified('bossStates');
+      await player.save();
+
+      console.log(`[Mining] ${wallet.slice(0,8)}... claimed ${totalToClaim.toFixed(4)} TON`);
+
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+      socket.emit('mining:claimed', { amount: totalToClaim, newBalance: player.gameBalance });
+      socket.emit('playerStatus', { balance: player.gameBalance });
+    } catch (err) {
+      console.error('mining:claim error:', err);
+    }
+  });
+
+  // ─── Recharge All ───
+  socket.on('mining:rechargeAll', async () => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    try {
+      await forceSync(wallet);
+
+      const activeSlots = await MiningSlot.find({ wallet, heroData: { $ne: null } });
+      const cost = activeSlots.length * MINING_RECHARGE_FEE;
+
+      const player = await Player.findOne({ wallet });
+      if (!player || player.gameBalance < cost) {
+        socket.emit('mining:error', { message: `Insufficient balance. Need ${cost.toFixed(2)} TON` });
+        return;
+      }
+
+      player.gameBalance -= cost;
+      await player.save();
+
+      // Recharge all active slots
+      await MiningSlot.updateMany(
+        { wallet, heroData: { $ne: null } },
+        { $set: { battery: 100 } }
+      );
+
+      console.log(`[Mining] ${wallet.slice(0,8)}... recharged ${activeSlots.length} slots for ${cost.toFixed(2)} TON`);
+
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+      socket.emit('playerStatus', { balance: player.gameBalance });
+    } catch (err) {
+      console.error('mining:rechargeAll error:', err);
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // ARCADE & PVP EVENTS (existing)
+  // ═══════════════════════════════════════════════════════════
 
   socket.on('placeBet', (data) => {
     if (matchStatus === 'LOCKED') {
@@ -196,7 +434,7 @@ io.on('connection', (socket) => {
       pool.blue += data.amount || 1;
     }
 
-    console.log(`[Bet] ${socket.id} bet ${data.amount} on ${data.side.toUpperCase()}. Red=${pool.red}, Blue=${pool.blue}`);
+    console.log(`[Bet] ${socket.id} bet ${data.amount} on ${data.side.toUpperCase()}.`);
     
     io.emit('poolSync', {
       pool,
@@ -211,8 +449,6 @@ io.on('connection', (socket) => {
     const { mode, player } = data;
     if (!mode || !player) return;
 
-    console.log(`[PVP] ${socket.id} (${player.name}) joined ${mode} queue.`);
-
     const queue = matchmakingQueues[mode];
     if (queue.length > 0) {
       const opponent = queue.shift();
@@ -220,9 +456,6 @@ io.on('connection', (socket) => {
           queue.push({ socket, player });
           return;
       }
-
-      console.log(`[PVP] Match found! ${socket.id} vs ${opponent.socket.id}`);
-
       socket.emit('matchFound', { opponent: opponent.player });
       opponent.socket.emit('matchFound', { opponent: player });
     } else {
@@ -234,12 +467,8 @@ io.on('connection', (socket) => {
     const { mode } = data;
     if (!mode) return;
     matchmakingQueues[mode] = matchmakingQueues[mode].filter(q => q.socket.id !== socket.id);
-    console.log(`[PVP] ${socket.id} left ${mode} queue.`);
   });
 
-  // ═══════════════════════════════════════════════════════════
-  // Player Update — allow re-registration (e.g., name change)
-  // ═══════════════════════════════════════════════════════════
   socket.on('updatePlayer', (data) => {
     const existing = onlinePlayers.get(socket.id);
     if (existing) {
@@ -247,7 +476,6 @@ io.on('connection', (socket) => {
       if (data?.wallet) existing.wallet = `${data.wallet.slice(0, 4)}...${data.wallet.slice(-4)}`;
       onlinePlayers.set(socket.id, existing);
       broadcastOnlinePlayers();
-      console.log(`[Update] ${existing.name} updated their info.`);
     }
   });
 
@@ -256,7 +484,6 @@ io.on('connection', (socket) => {
     const playerName = player?.name || 'Unknown';
     onlinePlayers.delete(socket.id);
 
-    // Remove from all queues
     Object.keys(matchmakingQueues).forEach(mode => {
       matchmakingQueues[mode] = matchmakingQueues[mode].filter(q => q.socket.id !== socket.id);
     });
@@ -267,5 +494,5 @@ io.on('connection', (socket) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Pixel War Arcade Backend running on http://localhost:${PORT}`);
+  console.log(`🚀 Pixel War Server running on http://localhost:${PORT}`);
 });

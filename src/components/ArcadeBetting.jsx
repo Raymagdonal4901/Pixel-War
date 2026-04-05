@@ -7,60 +7,68 @@ import { sendTelegramNotification } from '../utils/telegram';
 // Constants
 // ═══════════════════════════════════════════
 const DEV_FEE = 0.10;
-const BET_AMOUNT = 1;
-const SEED_AMOUNT = 0.5; // Dev seed per side (0.5 TON each = 1.0 TON total)
+const SEED_AMOUNT = 1; // Dev seed per side (1.0 TON each = 2.0 TON total)
 const LOCK_COUNTDOWN = 5; // seconds for lock animation before battle
-const ELEMENT_ICONS = { 'PLASMA': '🔥', 'CRYO': '💧', 'BIO': '🌿' };
 
-function getElementalMultiplier(a, d) {
-  if (a === 'PLASMA') { if (d === 'BIO') return 1.25; if (d === 'CRYO') return 0.80; }
-  if (a === 'CRYO') { if (d === 'PLASMA') return 1.25; if (d === 'BIO') return 0.80; }
-  if (a === 'BIO') { if (d === 'CRYO') return 1.25; if (d === 'PLASMA') return 0.80; }
-  return 1.0;
-}
-
-function generateRobotPair() {
+function generateRobots(is2v2) {
+  const count = is2v2 ? 2 : 1;
+  const red = [];
+  const blue = [];
   const all = CHARACTERS.filter(c => c.rarity !== 'Legendary' || Math.random() > 0.8);
-  const baseRed = all[Math.floor(Math.random() * all.length)];
-  const baseBlue = all[Math.floor(Math.random() * all.length)];
-  const isRedAtk = Math.random() > 0.5;
-  const baseSpd = Math.floor(Math.random() * 40) + 30;
-  const gen = (atk) => ({
-    atk: atk ? Math.floor(Math.random()*20)+60 : Math.floor(Math.random()*15)+20,
-    def: atk ? Math.floor(Math.random()*10)+20 : Math.floor(Math.random()*20)+50,
-    spd: baseSpd + Math.floor(Math.random()*3)-1,
-  });
-  const rs = gen(isRedAtk); rs.atk += Math.floor(Math.random()*5); rs.def += Math.floor(Math.random()*5);
-  const bs = gen(!isRedAtk); bs.atk += Math.floor(Math.random()*5); bs.def += Math.floor(Math.random()*5);
-  return { red: { ...baseRed, ...rs }, blue: { ...baseBlue, ...bs } };
+  
+  for (let i = 0; i < count; i++) {
+    const baseRed = all[Math.floor(Math.random() * all.length)];
+    const baseBlue = all[Math.floor(Math.random() * all.length)];
+    const isRedAtk = Math.random() > 0.5;
+    const baseSpd = Math.floor(Math.random() * 40) + 30;
+    const gen = (atk) => ({
+      atk: atk ? Math.floor(Math.random()*20)+60 : Math.floor(Math.random()*15)+20,
+      def: atk ? Math.floor(Math.random()*10)+20 : Math.floor(Math.random()*20)+50,
+      spd: baseSpd + Math.floor(Math.random()*3)-1,
+    });
+    const rs = gen(isRedAtk); rs.atk += Math.floor(Math.random()*5); rs.def += Math.floor(Math.random()*5);
+    const bs = gen(!isRedAtk); bs.atk += Math.floor(Math.random()*5); bs.def += Math.floor(Math.random()*5);
+    red.push({ ...baseRed, ...rs });
+    blue.push({ ...baseBlue, ...bs });
+  }
+
+  return { red, blue };
 }
 
 // ═══════════════════════════════════════════
 // Real-time Match Round Calculator
-// Every 2 hours = 1 round (00:00, 02:00, 04:00...)
+// Every 1 hour = 1 round
 // Lock betting 5 min before round end (XX:55)
+// Even hours = 1v1, Odd hours = 2v2
 // ═══════════════════════════════════════════
 function getCurrentMatchRound(currentTime = new Date()) {
   const h = currentTime.getHours();
-  const startHour = h % 2 === 0 ? h : h - 1;
-  let nextHour = startHour + 2;
-  if (nextHour >= 24) nextHour = 0;
+  const startHour = h;
+  const nextHour = (startHour + 1) % 24;
 
-  // Lock time = startHour+1 : 55 : 00
+  const is2v2 = startHour % 2 !== 0;
+  const betAmount = is2v2 ? 2 : 1;
+
+  // Lock time = startHour : 55 : 00
   const lockDate = new Date(currentTime);
-  lockDate.setHours(startHour + 1, 55, 0, 0);
-  const secondsUntilLock = Math.max(0, Math.floor((lockDate - currentTime) / 1000));
+  lockDate.setHours(startHour, 55, 0, 0);
+  let secondsUntilLock = Math.max(0, Math.floor((lockDate - currentTime) / 1000));
+  if (currentTime.getMinutes() >= 55) {
+      secondsUntilLock = 0;
+  }
   const isLocked = secondsUntilLock === 0;
 
   return {
     startHour,
+    is2v2,
+    betAmount,
     roundStartText: `${String(startHour).padStart(2,'0')}:00`,
     roundEndText: `${String(nextHour).padStart(2,'0')}:00`,
     status: isLocked ? 'LOCKED' : 'LIVE',
     secondsUntilLock,
     upcomingRounds: [
-      `${String(nextHour).padStart(2,'0')}:00`,
-      `${String((nextHour + 2) % 24).padStart(2,'0')}:00`
+      { timeText: `${String(nextHour).padStart(2,'0')}:00`, is2v2: nextHour % 2 !== 0 },
+      { timeText: `${String((nextHour + 1) % 24).padStart(2,'0')}:00`, is2v2: ((nextHour + 1) % 24) % 2 !== 0 }
     ]
   };
 }
@@ -93,7 +101,7 @@ const RobotCard = ({ robot, side, isWinner, isLoser }) => {
           <div className="flex justify-between"><span className="text-gray-600">ATK</span><span className="text-white">{robot?.atk}</span></div>
           <div className="flex justify-between"><span className="text-gray-600">DEF</span><span className="text-white">{robot?.def}</span></div>
           <div className="flex justify-between"><span className="text-gray-600">SPD</span><span className="text-white">{robot?.spd}</span></div>
-          <div className="flex justify-between items-center"><span className="text-gray-600">ELM</span><span className="text-sm">{ELEMENT_ICONS[robot?.element]||'🤖'}</span></div>
+
         </div>
       </div>
     </div>
@@ -114,24 +122,32 @@ const UpcomingCard = ({ match }) => (
       <span className="text-sm font-black text-gray-500 tabular-nums">{match.time}</span>
     </div>
     <div className="px-4 py-3 flex items-center justify-center gap-2">
-      <div className="flex-1 flex flex-col items-center">
-        <div className="w-14 h-14 relative opacity-70">
-          <img src={match.robots.red?.imagePath} className="w-full h-full object-contain image-pixelated" alt="R" />
-        </div>
-        <div className="text-[6px] text-gray-600 font-mono font-bold mt-1 space-y-px text-center">
-          <div>ATK:{match.robots.red?.atk} DEF:{match.robots.red?.def}</div>
-          <div>SPD:{match.robots.red?.spd} {ELEMENT_ICONS[match.robots.red?.element]||'🤖'}</div>
-        </div>
+      <div className="flex-1 flex justify-center gap-2">
+        {match.robots.red?.map((r, i) => (
+          <div key={`r-${i}`} className="flex flex-col items-center">
+            <div className="w-10 h-10 relative opacity-70">
+              <img src={r?.imagePath} className="w-full h-full object-contain image-pixelated" alt="R" />
+            </div>
+            <div className="text-[5px] text-gray-600 font-mono font-bold mt-1 space-y-px text-center">
+              <div>ATK:{r?.atk} DEF:{r?.def}</div>
+              <div>SPD:{r?.spd}</div>
+            </div>
+          </div>
+        ))}
       </div>
-      <span className="text-gray-700 font-black italic text-xs -mt-4">VS</span>
-      <div className="flex-1 flex flex-col items-center">
-        <div className="w-14 h-14 relative opacity-70">
-          <img src={match.robots.blue?.imagePath} className="w-full h-full object-contain image-pixelated" alt="B" />
-        </div>
-        <div className="text-[6px] text-gray-600 font-mono font-bold mt-1 space-y-px text-center">
-          <div>ATK:{match.robots.blue?.atk} DEF:{match.robots.blue?.def}</div>
-          <div>SPD:{match.robots.blue?.spd} {ELEMENT_ICONS[match.robots.blue?.element]||'🤖'}</div>
-        </div>
+      <span className="text-gray-700 font-black italic text-xs">VS</span>
+      <div className="flex-1 flex justify-center gap-2">
+        {match.robots.blue?.map((b, i) => (
+          <div key={`b-${i}`} className="flex flex-col items-center">
+            <div className="w-10 h-10 relative opacity-70">
+              <img src={b?.imagePath} className="w-full h-full object-contain image-pixelated" alt="B" />
+            </div>
+            <div className="text-[5px] text-gray-600 font-mono font-bold mt-1 space-y-px text-center">
+              <div>ATK:{b?.atk} DEF:{b?.def}</div>
+              <div>SPD:{b?.spd}</div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
     <div className="px-4 pb-3 text-center">
@@ -143,7 +159,7 @@ const UpcomingCard = ({ match }) => (
 // ═══════════════════════════════════════════
 // Main Component
 // ═══════════════════════════════════════════
-const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, executeRealTonPayment, socket, poolSyncData }) => {
+const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBalance, setDevBalance, executeRealTonPayment, socket, poolSyncData }) => {
   const { t } = useT();
   const [gameState, setGameState] = useState('idle');
   const [matchInfo, setMatchInfo] = useState(() => getCurrentMatchRound());
@@ -167,7 +183,7 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
   ]);
   const [roundCounter, setRoundCounter] = useState(103);
 
-  const limitReached = pvpStats.count >= 5;
+  const limitReached = (pvpQuota?.count || 0) >= 5;
   const totalPool = pool.red + pool.blue;
   const poolAfterFee = totalPool * (1 - DEV_FEE);
   const redMult = pool.red > 0 ? (poolAfterFee / pool.red) : 0;
@@ -178,17 +194,17 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
   const reward = useMemo(() => {
     if (!winner || !selectedBet || selectedBet !== winner) return 0;
     const side = selectedBet === 'red' ? pool.red : pool.blue;
-    return side > 0 ? (poolAfterFee / side) * BET_AMOUNT : 0;
-  }, [winner, selectedBet, pool, poolAfterFee]);
+    return side > 0 ? (poolAfterFee / side) * matchInfo.betAmount : 0;
+  }, [winner, selectedBet, pool, poolAfterFee, matchInfo.betAmount]);
 
   // Initialize on mount
   useEffect(() => {
     const info = getCurrentMatchRound();
-    setRobots(generateRobotPair());
+    setRobots(generateRobots(info.is2v2));
     setPool({ red: SEED_AMOUNT, blue: SEED_AMOUNT });
     setUpcomingMatches([
-      { robots: generateRobotPair(), time: info.upcomingRounds[0] },
-      { robots: generateRobotPair(), time: info.upcomingRounds[1] },
+      { robots: generateRobots(info.upcomingRounds[0].is2v2), time: info.upcomingRounds[0].timeText, is2v2: info.upcomingRounds[0].is2v2 },
+      { robots: generateRobots(info.upcomingRounds[1].is2v2), time: info.upcomingRounds[1].timeText, is2v2: info.upcomingRounds[1].is2v2 },
     ]);
   }, []);
 
@@ -211,10 +227,10 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
         setLockTimer(data.clock);
       } else if (data.status === 'OPEN' && gameState === 'result') {
         const info = getCurrentMatchRound();
-        setRobots(generateRobotPair());
+        setRobots(generateRobots(info.is2v2));
         setUpcomingMatches([
-          { robots: generateRobotPair(), time: info.upcomingRounds[0] },
-          { robots: generateRobotPair(), time: info.upcomingRounds[1] },
+          { robots: generateRobots(info.upcomingRounds[0].is2v2), time: info.upcomingRounds[0].timeText, is2v2: info.upcomingRounds[0].is2v2 },
+          { robots: generateRobots(info.upcomingRounds[1].is2v2), time: info.upcomingRounds[1].timeText, is2v2: info.upcomingRounds[1].is2v2 },
         ]);
         setGameState('idle');
         setSelectedBet(null);
@@ -252,8 +268,8 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
   }, [pool, setDevBalance, roundCounter]);
 
   const simulateBattle = useCallback(() => {
-    const score = (r,o) => (r.atk * getElementalMultiplier(r.element,o.element) * 1.5)+(r.spd*1.2)+(r.def*1.0);
-    const rS = score(robots.red, robots.blue), bS = score(robots.blue, robots.red), tot = rS+bS;
+    const scoreTeam = (team) => team.reduce((sum, r) => sum + (r.atk * 1.5) + (r.spd*1.2) + (r.def*1.0), 0);
+    const rS = scoreTeam(robots.red), bS = scoreTeam(robots.blue), tot = rS + bS;
     let ticks = 0;
     const fxI = setInterval(() => { setBattleFX(ticks%2===0?'red-attack':'blue-attack'); ticks++; }, 500);
     setTimeout(() => {
@@ -289,15 +305,15 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
     if (limitReached || selectedBet || (gameState !== 'idle' && gameState !== 'betting')) return;
     
     // Real TON Payment
-    const success = await executeRealTonPayment(BET_AMOUNT, `Arcade Bet: ${side.toUpperCase()}`, true);
+    const success = await executeRealTonPayment(matchInfo.betAmount, `Arcade Bet: ${side.toUpperCase()}`, true);
     if (!success) return;
 
     setSelectedBet(side);
-    setPvpStats(prev => ({ ...prev, count: Math.min(5,prev.count+1) }));
+    setPvpQuota(prev => ({ ...prev, count: Math.min(5, (prev?.count || 0) + 1) }));
     
-    // Emit to server so others see the pool increase (server handles its own pool state)
+    // Emit to server so others see the pool increase
     if (socket) {
-      socket.emit('placeBet', { side, amount: BET_AMOUNT });
+      socket.emit('placeBet', { side, amount: matchInfo.betAmount });
     }
 
     if (gameState === 'idle') {
@@ -390,7 +406,7 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
             <div className="flex items-center gap-2 mt-1">
               <span className="text-[7px] text-gray-500 font-bold uppercase tracking-wider">ROUND #{roundCounter}</span>
               <span className="text-[7px] text-gray-600">|</span>
-              <span className={`text-[7px] font-bold uppercase tracking-wider ${limitReached?'text-red-500':'text-gray-500'}`}>QUOTA {5-pvpStats.count}/5</span>
+              <span className={`text-[7px] font-bold uppercase tracking-wider ${limitReached?'text-red-500':'text-gray-500'}`}>QUOTA {5-(pvpQuota?.count || 0)}/5</span>
             </div>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -398,7 +414,7 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
               📊 STATS
             </button>
             {limitReached && (
-              <button onClick={()=>setPvpStats({count:0,lastResetDayId:-1})} className="text-[6px] text-red-500/80 border border-red-900/30 px-2 py-0.5 bg-black/60 hover:bg-red-950/20 transition-colors uppercase">
+              <button onClick={()=>setPvpQuota({count:0,lastResetDayId:-1})} className="text-[6px] text-red-500/80 border border-red-900/30 px-2 py-0.5 bg-black/60 hover:bg-red-950/20 transition-colors uppercase">
                 {t('arcade.devReset')}
               </button>
             )}
@@ -474,8 +490,10 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
             {battleFX==='blue-attack' && robots.red && <span className="absolute left-[20%] top-[20%] text-3xl z-50 drop-shadow-lg">💥</span>}
             {battleFX==='red-attack' && robots.blue && <span className="absolute right-[20%] top-[20%] text-3xl z-50 drop-shadow-lg scale-x-[-1]">💥</span>}
 
-            <div className={`flex-1 flex flex-col items-center ${battleFX==='red-attack'?'anim-attack-right':''} ${battleFX==='blue-attack'?'anim-hit':''} ${gameState==='locking'?'anim-power-up':''}`}>
-              <RobotCard robot={robots.red} side="red" isWinner={winner==='red'&&isResult} isLoser={winner==='blue'&&isResult} />
+            <div className={`flex-1 flex justify-center gap-1 ${battleFX==='red-attack'?'anim-attack-right':''} ${battleFX==='blue-attack'?'anim-hit':''} ${gameState==='locking'?'anim-power-up':''}`}>
+              {robots.red?.map((r, i) => (
+                <RobotCard key={`tr-${i}`} robot={r} side="red" isWinner={winner==='red'&&isResult} isLoser={winner==='blue'&&isResult} />
+              ))}
             </div>
 
             <div className="flex flex-col items-center -mt-8 z-20">
@@ -490,8 +508,10 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
               )}
             </div>
 
-            <div className={`flex-1 flex flex-col items-center ${battleFX==='blue-attack'?'anim-attack-left':''} ${battleFX==='red-attack'?'anim-hit':''} ${gameState==='locking'?'anim-power-up':''}`}>
-              <RobotCard robot={robots.blue} side="blue" isWinner={winner==='blue'&&isResult} isLoser={winner==='red'&&isResult} />
+            <div className={`flex-1 flex justify-center gap-1 ${battleFX==='blue-attack'?'anim-attack-left':''} ${battleFX==='red-attack'?'anim-hit':''} ${gameState==='locking'?'anim-power-up':''}`}>
+              {robots.blue?.map((b, i) => (
+                <RobotCard key={`tb-${i}`} robot={b} side="blue" isWinner={winner==='blue'&&isResult} isLoser={winner==='red'&&isResult} />
+              ))}
             </div>
           </div>
 
@@ -511,7 +531,7 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
                 <div className="flex items-center gap-2">
                   {selectedBet ? (
                     <span className="text-[7px] text-[#2ecc71] font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_2px_rgba(46,204,113,0.5)]">
-                      YOUR EST. REWARD: {(BET_AMOUNT * (selectedBet === 'red' ? redMult : blueMult)).toFixed(2)} TON
+                      YOUR EST. REWARD: {(matchInfo.betAmount * (selectedBet === 'red' ? redMult : blueMult)).toFixed(2)} TON
                     </span>
                   ) : (
                     <>
@@ -552,7 +572,7 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
                     'bg-gradient-to-b from-red-700 to-red-900 border-red-500/50 text-white hover:from-red-600 hover:to-red-800 active:scale-[0.98] shadow-[0_0_15px_rgba(255,0,0,0.15)]'
                   }`}>
                   <span>🔴 BET RED</span>
-                  <span className="text-[7px] font-normal opacity-70">(1 TON)</span>
+                  <span className="text-[7px] font-normal opacity-70">({matchInfo.betAmount} TON)</span>
                   {gameState==='betting' && <span className={`text-[6px] font-normal ${redMult>=2?'text-[#2ecc71]':'text-gray-400'}`}>Est. {redMult.toFixed(1)}x</span>}
                 </button>
                 <button onClick={()=>handleBet('blue')} disabled={selectedBet!==null||(gameState==='betting'&&limitReached)}
@@ -562,7 +582,7 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
                     'bg-gradient-to-b from-blue-700 to-blue-900 border-blue-500/50 text-white hover:from-blue-600 hover:to-blue-800 active:scale-[0.98] shadow-[0_0_15px_rgba(0,100,255,0.15)]'
                   }`}>
                   <span>🔵 BET BLUE</span>
-                  <span className="text-[7px] font-normal opacity-70">(1 TON)</span>
+                  <span className="text-[7px] font-normal opacity-70">({matchInfo.betAmount} TON)</span>
                   {gameState==='betting' && <span className={`text-[6px] font-normal ${blueMult>=2?'text-[#2ecc71]':'text-gray-400'}`}>Est. {blueMult.toFixed(1)}x</span>}
                 </button>
               </div>
@@ -600,9 +620,13 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, setGameBalance, setDevBalance, e
             <div className="arcade-crt-overlay rounded"></div>
             <h3 className="text-[#f1c40f] text-sm font-black tracking-[0.3em] uppercase mb-4">{t('arcade.matchResult')}</h3>
             <div className="flex items-center gap-3 mb-4">
-              <span className="text-4xl drop-shadow-lg">🏆</span>
-              <div className={`w-16 h-16 ${winner==='red'?'drop-shadow-[0_0_20px_rgba(255,51,68,0.6)]':'drop-shadow-[0_0_20px_rgba(59,130,246,0.6)]'}`}>
-                <img src={winner==='red'?robots.red?.imagePath:robots.blue?.imagePath} className="w-full h-full object-contain image-pixelated" alt="W"/>
+              <span className="text-4xl drop-shadow-lg flex-shrink-0">🏆</span>
+              <div className="flex justify-center gap-2">
+                {(winner==='red'?robots.red:robots.blue)?.map((r, i) => (
+                  <div key={`w-${i}`} className={`w-16 h-16 ${winner==='red'?'drop-shadow-[0_0_20px_rgba(255,51,68,0.6)]':'drop-shadow-[0_0_20px_rgba(59,130,246,0.6)]'}`}>
+                    <img src={r?.imagePath} className="w-full h-full object-contain image-pixelated" alt="W"/>
+                  </div>
+                ))}
               </div>
             </div>
             <h4 className={`text-xl font-black italic tracking-widest mb-1 ${winner==='red'?'neon-text-red':'neon-text-blue'}`}>{winner.toUpperCase()} {t('arcade.wins')}</h4>

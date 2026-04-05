@@ -9,8 +9,22 @@
 // --- Core Constants ---
 export const BASE_RATE_PER_ATK = 0.001;        // TON earned per 1 ATK per day
 export const FIGHT_DURATION_SECONDS = 86400;    // 24 hours = 1 raid cycle
-export const GACHA_COST_TON = 1;                // 1 pull = 1 TON
+export const GACHA_COST_TON = 1;                // Obsolete soon, but kept for legacy fallback
 export const REPAIR_FEE_PERCENT = 0.15;         // 15% of daily yield
+
+export const TIER_PRICING = {
+  Common: 1,
+  Rare: 3,
+  SR: 5,
+  Epic: 7,
+  Legendary: 10
+};
+
+// --- Mining Facility Constants ---
+export const MINING_BATTERY_DURATION = 86400;   // Battery lasts exactly 24 hours
+export const MINING_RECHARGE_FEE = 0.1;         // 0.1 TON per hero to recharge (10% of Gacha cost)
+export const MINING_UNLOCK_COST_4 = 5;          // Pod 4 unlock cost
+export const MINING_UNLOCK_COST_5 = 10;         // Pod 5 unlock cost
 
 // --- PVP Constants ---
 export const PVP_MODES = {
@@ -38,17 +52,19 @@ export const DROP_RATES = {
   Legendary:  100,  //  1%
 };
 
-// --- ATK Values per Rarity ---
+// --- ATK Values per Rarity (Recalculated for new Shop) ---
+// Base rate = 0.001 TON / day. To get 0.2 TON/day, ATK = 200.
 export const ATK_VALUES = {
-  Common:      28,
-  Rare:        64,
-  SR:         235,
-  Epic:       455,
-  Legendary: 1200,
+  Common:       200, // 0.20 TON/D
+  Rare:         600, // 0.60 TON/D
+  SR:          1000, // 1.00 TON/D
+  Epic:        1400, // 1.40 TON/D
+  Legendary:   2000, // 2.00 TON/D
 };
 
-// Average ATK per pull = 0.50×28 + 0.30×64 + 0.15×235 + 0.04×455 + 0.01×1200 ≈ 98.65
+// Average ATK is no longer strictly bound to gacha drops the same way, but keeping for retro-compatibility
 export const AVG_ATK_PER_PULL = 98.65;
+export const RARITY_ORDER = { Legendary: 0, Epic: 1, SR: 2, Rare: 3, Common: 4 };
 
 // --- Boss Tier Definitions ---
 export const BOSSES = [
@@ -58,8 +74,9 @@ export const BOSSES = [
     tier: 1,
     maxSlots: 10,
     multiplier: 1.00,
+    baseHp: 100000,
     bonusLabel: "+0%",
-    roiDays: 14.8,
+    roiDays: 5.0,
     image: "/boss/boss_1.png",
     color: "#e74c3c",
   },
@@ -68,9 +85,10 @@ export const BOSSES = [
     name: "Iron Clad",
     tier: 2,
     maxSlots: 20,
-    multiplier: 1.10,
-    bonusLabel: "+10%",
-    roiDays: 13.4,
+    multiplier: 1.15,
+    baseHp: 500000,
+    bonusLabel: "+15%",
+    roiDays: 4.5,
     image: "/boss/boss_2.png",
     color: "#2ecc71",
   },
@@ -79,9 +97,10 @@ export const BOSSES = [
     name: "Mecha Core",
     tier: 3,
     maxSlots: 30,
-    multiplier: 1.20,
-    bonusLabel: "+20%",
-    roiDays: 12.3,
+    multiplier: 1.30,
+    baseHp: 2000000,
+    bonusLabel: "+30%",
+    roiDays: 4.2,
     image: "/boss/boss_3.png",
     color: "#3498db",
   },
@@ -90,9 +109,10 @@ export const BOSSES = [
     name: "Titan Orb",
     tier: 4,
     maxSlots: 40,
-    multiplier: 1.30,
-    bonusLabel: "+30%",
-    roiDays: 11.4,
+    multiplier: 1.50,
+    baseHp: 8000000,
+    bonusLabel: "+50%",
+    roiDays: 3.8,
     image: "/boss/boss_4.png",
     color: "#9b59b6",
   },
@@ -101,8 +121,9 @@ export const BOSSES = [
     name: "Doomsday",
     tier: 5,
     maxSlots: 50,
-    multiplier: 1.45,
-    bonusLabel: "+45%",
+    multiplier: 2.00,
+    baseHp: 50000000,
+    bonusLabel: "+100%",
     roiDays: 10.2,
     image: "/boss/boss_5.png",
     color: "#f1c40f",

@@ -4,11 +4,8 @@ import { PVP_MODES } from '../data/tokenomics';
 import { useT } from '../i18n/LanguageContext';
 import { sendTelegramNotification } from '../utils/telegram';
 
-const ELEMENT_ICONS = {
-  'PLASMA': '🔥',
-  'CRYO': '💧',
-  'BIO': '🌿'
-};
+
+// ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
 // PVP Combat Stats — Balanced for M=25, ~5 turn battles
@@ -49,21 +46,7 @@ function toPvpCombatHero(hero, battleId) {
   };
 }
 
-function getElementalMultiplier(attackerElement, defenderElement) {
-  if (attackerElement === 'PLASMA') {
-    if (defenderElement === 'BIO') return 1.25;
-    if (defenderElement === 'CRYO') return 0.80;
-  }
-  if (attackerElement === 'CRYO') {
-    if (defenderElement === 'PLASMA') return 1.25;
-    if (defenderElement === 'BIO') return 0.80;
-  }
-  if (attackerElement === 'BIO') {
-    if (defenderElement === 'CRYO') return 1.25;
-    if (defenderElement === 'PLASMA') return 0.80;
-  }
-  return 1.0;
-}
+
 
 const HeroSprite = ({ char, className = "" }) => {
   if (!char) return <span>🤖</span>;
@@ -105,7 +88,7 @@ const WatermarkBg = () => (
   ></div>
 );
 
-export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPressStart, onLongPressEnd, gameBalance, setGameBalance, setDevBalance, socket }) {
+export default function PvpArena({ userHeroes, pvpStats, setPvpStats, pvpQuota, setPvpQuota, onLongPressStart, onLongPressEnd, gameBalance, setGameBalance, setDevBalance, socket }) {
   const { t } = useT();
   const [view, setView] = useState('lounge'); // 'lounge' | 'matchmaking' | 'battle' | 'result'
   const [mode, setMode] = useState('1v1'); // '1v1' | '3v3'
@@ -298,16 +281,13 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
 
       // Calculate damage using the user's formula
       const { finalDmg, isCrit } = calcDamage(attacker);
-      const elementMult = getElementalMultiplier(attacker.element, target.element);
-      const totalDamage = Math.floor(finalDmg * elementMult);
+      const totalDamage = finalDmg;
 
       let nextPlayer = [...player];
       let nextEnemy = [...enemy];
 
       let damageText = `${attacker.name} → ${target.name}: ${totalDamage} DMG`;
       if (isCrit) damageText += ' 💥 CRITICAL!';
-      if (elementMult > 1.0) damageText += ' 🔥 SUPER EFFECTIVE!';
-      if (elementMult < 1.0) damageText += ' 🛡️ NOT EFFECTIVE.';
 
       if (isPlayerTurn) {
         nextEnemy = nextEnemy.map(e => e.battleId === target.battleId ? {...e, currentHp: Math.max(0, e.currentHp - totalDamage)} : e);
@@ -395,9 +375,9 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                 <div className="flex flex-col gap-0.5">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] text-gray-400 font-bold tracking-wider">{t('pvp.quota')}</span>
-                    {pvpStats.count >= 5 && (
+                    {(pvpQuota?.count || 0) >= 5 && (
                       <button 
-                        onClick={() => setPvpStats({ count: 0, lastResetDayId: -1 })}
+                        onClick={() => setPvpQuota({ count: 0, lastResetDayId: -1 })}
                         className="text-[6px] text-red-500 hover:text-red-400 bg-red-500/10 px-1 py-0.5 border border-red-500/30 rounded-sm w-fit transition-colors whitespace-nowrap"
                       >
                         {t('pvp.resetQuota')}
@@ -406,8 +386,8 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                   </div>
                   <span className="text-[8px] text-gray-500 italic">{t('pvp.resetEvery2h')}</span>
                 </div>
-                <div className={`text-lg font-black italic tracking-tighter ${pvpStats.count >= 5 ? 'text-red-500 animate-pulse' : 'text-[#f1c40f]'}`}>
-                  {5 - pvpStats.count} / 5 <span className="text-[8px] uppercase not-italic text-gray-400 ml-1">{t('pvp.rounds')}</span>
+                <div className={`text-lg font-black italic tracking-tighter ${(pvpQuota?.count || 0) >= 5 ? 'text-red-500 animate-pulse' : 'text-[#f1c40f]'}`}>
+                  {5 - (pvpQuota?.count || 0)} / 5 <span className="text-[8px] uppercase not-italic text-gray-400 ml-1">{t('pvp.rounds')}</span>
                 </div>
               </div>
 
@@ -418,7 +398,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                 fee={PVP_MODES.DUEL_1V1.fee}
                 onAction={() => startMatchmaking('1v1')}
                 isReady={selected1v1.length === 1}
-                disabled={pvpStats.count >= 5 || gameBalance < PVP_MODES.DUEL_1V1.fee}
+                disabled={(pvpQuota?.count || 0) >= 5 || gameBalance < PVP_MODES.DUEL_1V1.fee}
               />
 
               {/* 3 VS 3 Card */}
@@ -429,7 +409,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                 fee={PVP_MODES.TEAM_3V3.fee}
                 onAction={() => startMatchmaking('3v3')}
                 isReady={selected3v3.length === 3}
-                disabled={pvpStats.count >= 5 || gameBalance < PVP_MODES.TEAM_3V3.fee}
+                disabled={(pvpQuota?.count || 0) >= 5 || gameBalance < PVP_MODES.TEAM_3V3.fee}
               />
             </div>
          </div>
@@ -518,7 +498,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
               className={`pixel-button w-full py-2 font-bold tracking-[0.15em] shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_2px_0_#1a1c23] flex items-center justify-center gap-3 transition-all ${disabled ? 'bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-80' : 'bg-[#2c303c] hover:bg-[#34495e] text-white animate-in slide-in-from-bottom-2'}`}
             >
               <span className="text-xl uppercase">
-                {pvpStats.count >= 5 ? 'LIMIT' : 
+                {(pvpQuota?.count || 0) >= 5 ? 'LIMIT' : 
                  (gameBalance < fee ? 'NO FUNDS' : (isReady ? `${fee}` : 'CREATE'))}
               </span>
               {!disabled && <img src="/ton_coin.png" alt="T" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(0,152,234,0.7)]" />}
@@ -595,9 +575,8 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, onLongPres
                               Lv.{hero.level || 1}
                             </div>
 
-                            {/* Element Icon - Positioned below Level Badge */}
-                            <div className="absolute top-2 left-0 w-3.5 h-3.5 bg-black/80 flex items-center justify-center rounded-sm text-[7px] z-10 border border-white/5">
-                              {ELEMENT_ICONS[hero.element]}
+                            {/* Element Icon - Removed */}
+                            <div className="absolute top-2 left-0 w-3.5 h-3.5 bg-black/80 flex items-center justify-center rounded-sm text-[7px] z-10 border border-white/5 opacity-0">
                             </div>
 
                             {/* Sprite Area */}
