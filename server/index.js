@@ -647,10 +647,18 @@ io.on('connection', (socket) => {
 // REST API ENDPOINTS
 // ═══════════════════════════════════════════════════════════
 
+// Health check
+app.get('/', (req, res) => {
+  res.json({ status: 'OK', message: 'Pixel War Server is running' });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
 /**
  * POST /api/withdraw
  * Withdraw V-TON from game balance to real TON wallet
- * Uses TonCenter API to send transaction from treasury wallet
  * Body: { amount: number, destinationAddress: string, wallet: string }
  */
 app.post('/api/withdraw', async (req, res) => {

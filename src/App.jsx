@@ -523,7 +523,16 @@ function App() {
         }
       );
 
-      const result = await response.json();
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Failed to parse JSON:', e);
+        throw new Error(`Server error: ${responseText.substring(0, 200)}`);
+      }
       
       if (!response.ok || !result.success) {
         throw new Error(result.error || result.details || 'Withdrawal failed');
