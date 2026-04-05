@@ -13,6 +13,7 @@ import MatchHistory from './models/MatchHistory.js';
 import MiningSlot from './models/MiningSlot.js';
 import { TIER_PRICING, TIER_TO_RARITY, MINING_RECHARGE_FEE } from './tokenomics.js';
 import { processHourlySync, forceSync, getMiningState } from './miningEngine.js';
+import { getMissionStatus, processCheckIn, completeSocialTask, processCraft } from './missionEngine.js';
 
 // Connect to MongoDB
 connectDB().then(() => {
@@ -167,11 +168,18 @@ io.on('connection', (socket) => {
 
       broadcastOnlinePlayers();
 
+      const missionStatus = await getMissionStatus(player.wallet);
       socket.emit('playerStatus', {
         balance: player.gameBalance,
         pvpStats: player.pvpStats,
-        pendingYield: player.pendingYield
+        pendingYield: player.pendingYield,
+        scrap: player.scrap,
+        mechTickets: player.mechTickets
       });
+
+      if (missionStatus) {
+        socket.emit('mission:statusSync', missionStatus);
+      }
 
     } catch (err) {
       console.error(`❌ DB Error in registerPlayer: ${err.message}`);
@@ -303,6 +311,98 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('mining:removeMech error:', err);
     }
+  });
+
+  // ─── Referral / Invite ───
+  // (Existing referral logic remains, assuming it's handled via socket or http)
+  
+  // ═══════════════════════════════════════════════════════════
+  // MISSION & EARN FREE MECH EVENTS
+  // ═══════════════════════════════════════════════════════════
+  
+  // ─── Get Status ───
+  socket.on('mission:getStatus', async () => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const status = await getMissionStatus(wallet);
+    if (status) socket.emit('mission:statusSync', status);
+  });
+
+  // ─── Daily Check-in ───
+  socket.on('mission:checkIn', async () => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const result = await processCheckIn(wallet);
+    if (result.success) {
+      socket.emit('mission:rewardClaimed', result);
+      // Also update overall status
+      const status = await getMissionStatus(wallet);
+      socket.emit('mission:statusSync', status);
+      // Update global balances
+      socket.emit('playerStatus', { scrap: result.scrap, mechTickets: result.mechTickets });
+    } else {
+      socket.emit('mission:error', { message: result.error });
+    }
+  });
+
+  // ─── Complete Social Task ───
+  socket.on('mission:completeTask', async (data) => {
+    const { taskId } = data;
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet || !taskId) return;
+
+    const result = await completeSocialTask(wallet, taskId);
+    if (result.success) {
+      socket.emit('mission:rewardClaimed', result);
+      const status = await getMissionStatus(wallet);
+      socket.emit('mission:statusSync', status);
+      socket.emit('playerStatus', { scrap: result.scrap, mechTickets: result.mechTickets });
+    } else {
+      socket.emit('mission:error', { message: result.error });
+    }
+  });
+
+  // ─── Craft Mech ───
+  socket.on('mission:craft', async () => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const result = await processCraft(wallet);
+    if (result.success) {
+      socket.emit('mission:crafted', result);
+      const status = await getMissionStatus(wallet);
+      socket.emit('mission:statusSync', status);
+      socket.emit('playerStatus', { scrap: result.scrap, mechTickets: result.mechTickets });
+    } else {
+      socket.emit('mission:error', { message: result.error });
+    }
+  });
+
+  // ─── Open Mech Box (Deduct Ticket) ───
+  socket.on('mission:openBox', async () => {
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet) return;
+
+    const player = await Player.findOne({ wallet });
+    if (!player || (player.mechTickets || 0) < 1) {
+        socket.emit('mission:error', { message: 'No tickets available' });
+        return;
+    }
+
+    player.mechTickets -= 1;
+    await player.save();
+
+    socket.emit('mission:boxOpened', { success: true, mechTickets: player.mechTickets });
+    socket.emit('playerStatus', { mechTickets: player.mechTickets });
+    const status = await getMissionStatus(wallet);
+    socket.emit('mission:statusSync', status);
   });
 
   // ─── Unlock Slot ───

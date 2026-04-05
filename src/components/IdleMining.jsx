@@ -257,7 +257,7 @@ function IdleMining({
                               className="h-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.8)] transition-all"
                               style={{ width: `${Math.max(0, pod.battery || 0)}%`, backgroundColor: (pod.battery || 0) < 20 ? '#ef4444' : '#3b82f6' }}
                             ></div>
-                            <div className="absolute inset-0 flex items-center justify-center text-[6px] text-white font-bold mix-blend-difference">
+                            <div className="absolute inset-0 flex items-center justify-center text-[7px] text-white font-black drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
                               {(pod.battery || 0).toFixed(0)}%
                             </div>
                           </div>

@@ -43,6 +43,25 @@ const playerSchema = new mongoose.Schema({
       pendingYield: 0
     }))
   },
+  scrap: {
+    type: Number,
+    default: 0
+  },
+  dailyStreak: {
+    type: Number,
+    default: 0
+  },
+  lastCheckIn: {
+    type: Date
+  },
+  completedTasks: {
+    type: [String],
+    default: []
+  },
+  mechTickets: {
+    type: Number,
+    default: 0
+  },
   pvpStats: {
     count: { type: Number, default: 0 },
     lastResetDayId: { type: Number, default: -1 }

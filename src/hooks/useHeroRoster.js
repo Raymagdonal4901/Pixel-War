@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { CHARACTERS } from '../data/characters';
 
 const MAX_HERO_CAPACITY = 100;
@@ -109,14 +109,14 @@ export function useHeroRoster() {
   /**
    * Check if adding `count` heroes would exceed capacity.
    */
-  const canAdd = (count = 1) => heroCount + count <= MAX_HERO_CAPACITY;
+  const canAdd = useCallback((count = 1) => heroCount + count <= MAX_HERO_CAPACITY, [heroCount]);
 
   /**
    * Add an array of character objects (from gacha pulls) to the roster.
    * Each gets a unique instance ID, level, and timestamp.
    * Returns true if successful, false if capacity exceeded.
    */
-  const addHeroes = (chars) => {
+  const addHeroes = useCallback((chars) => {
     if (!canAdd(chars.length)) return false;
 
     const newHeroes = chars.map(char => ({
@@ -148,7 +148,7 @@ export function useHeroRoster() {
 
     setUserHeroes(prev => [...prev, ...newHeroes]);
     return true;
-  };
+  }, [canAdd]);
 
   /**
    * Remove a hero by instance ID.

@@ -12,6 +12,8 @@ import { useT } from './i18n/LanguageContext';
 import { useMining } from './hooks/useMining';
 import { useReferral } from './hooks/useReferral';
 import ReferralHub from './components/ReferralHub';
+import { useMissions } from './hooks/useMissions';
+import EarnFreeMech from './components/EarnFreeMech';
 import { sendTelegramNotification } from './utils/telegram';
 import { io } from 'socket.io-client';
 
@@ -74,10 +76,17 @@ const IconMining = () => (
   </div>
 );
 
+const IconMission = () => (
+  <div className="relative w-8 h-8 flex items-center justify-center translate-y-[-2px]">
+    <img src="/gacha_icon.png" alt="Mission" className="w-[30px] h-[30px] object-contain image-pixelated brightness-110 drop-shadow-[0_0_8px_rgba(241,196,15,0.4)]" />
+  </div>
+);
+
 
 
 // Blockchain Config
 const RECIPIENT_ADDRESS = "UQBc7XwYlXbqVYO76GOizi3Ji97aFHj98jKfbKUkUWKUgP2p";
+const DEV_WALLET_ADDRESS = RECIPIENT_ADDRESS; // Dev wallet used for withdrawals and deposits
 const GACHA_FEE_TON = 1.0;
 const UPGRADE_FEE_TON = 0.5;
 
@@ -91,19 +100,68 @@ function App() {
   const [isPulling, setIsPulling] = useState(false);
   const [showRates, setShowRates] = useState(false);
 
+  // ─── ROSTER & MISSIONS HOOKS ───
+  const { buyTier } = useGacha();
+  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
+  
+  // ─── MODAL SYSTEM (Needs to be defined before socket effects) ───
+  const [modalConfig, setModalConfig] = useState({ 
+    isOpen: false, 
+    type: 'alert', 
+    title: '', 
+    message: '', 
+    confirmText: '', 
+    cancelText: '',
+    onConfirm: null 
+  });
+
+  const triggerModal = (config) => {
+    setModalConfig({
+      isOpen: true,
+      type: config.type || 'alert',
+      title: config.title || '',
+      message: config.message || '',
+      confirmText: config.confirmText || '',
+      cancelText: config.cancelText || '',
+      onConfirm: config.onConfirm || null
+    });
+  };
+
+  // ─── FINANCIAL STATES ───
+  const [gameBalance, setGameBalance] = useState(() => {
+    const saved = localStorage.getItem('pixel_war_game_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
+  const [devBalance, setDevBalance] = useState(() => {
+    const saved = localStorage.getItem('pixel_war_dev_balance');
+    return saved ? parseFloat(saved) : 0;
+  });
+
+  // ─── PVP & MISSIONS ───
+  const [pvpStats, setPvpStats] = useState({ matches: 0, wins: 0, rank: 'Bronze' });
+  const [socket, setSocket] = useState(null);
+  const socketRef = useRef(null);
+  
+  // ─── STABLE REFERENCES FOR SOCKET LISTENERS ───
+  const addHeroesRef = useRef(addHeroes);
+  useEffect(() => { addHeroesRef.current = addHeroes; }, [addHeroes]);
+  
+  const missionData = useMissions(socket, wallet?.account?.address, addHeroes);
+  const miningData = useMining(userHeroes, socket, wallet?.account?.address);
 
   // Global Socket & Online Players State
   const [onlineCount, setOnlineCount] = useState(0);
   const [totalPlayers, setTotalPlayers] = useState(0);
   const [onlinePlayers, setOnlinePlayers] = useState([]);
   const [poolData, setPoolData] = useState(null);
-  const socketRef = useRef(null);
 
   useEffect(() => {
     // Initialize socket connection globally
-    socketRef.current = io(SOCKET_URL);
+    const socketInstance = io(SOCKET_URL);
+    socketRef.current = socketInstance;
+    setSocket(socketInstance);
     
-    socketRef.current.on('poolSync', (data) => {
+    socketInstance.on('poolSync', (data) => {
       setPoolData(data);
       if (data.onlineCount !== undefined) {
         setOnlineCount(data.onlineCount);
@@ -145,8 +203,43 @@ function App() {
       console.warn('[Mining Error]', data.message);
     });
 
+    socketRef.current.on('mission:rewardClaimed', (result) => {
+      triggerModal({
+        type: 'alert',
+        title: 'MISSION REWARD!',
+        message: `Congratulations! You received ${result.rewardLabel}`,
+        confirmText: t('modal.understood')
+      });
+    });
+
+    socketRef.current.on('mission:boxOpened', (data) => {
+      if (data.success) {
+        // Pick a random common hero
+        const commonChars = CHARACTERS.filter(c => c.rarity === 'Common');
+        const picked = commonChars[Math.floor(Math.random() * commonChars.length)];
+        const added = addHeroesRef.current([picked]);
+        if (added) {
+            triggerModal({
+                type: 'alert',
+                title: 'BOX OPENED!',
+                message: `You got a new Common Mech: ${picked.name}`,
+                confirmText: 'AWESOME!'
+            });
+        }
+      }
+    });
+
+    socketRef.current.on('mission:error', (data) => {
+      triggerModal({
+        type: 'alert',
+        title: 'MISSION ERROR',
+        message: data.message,
+        confirmText: 'OK'
+      });
+    });
+
     return () => {
-      if (socketRef.current) socketRef.current.disconnect();
+      if (socketInstance) socketInstance.disconnect();
     };
   }, []);
   const [repairTarget, setRepairTarget] = useState(null);
@@ -154,13 +247,9 @@ function App() {
   const [selectedHero, setSelectedHero] = useState(null);
   const [showCapacityWarning, setShowCapacityWarning] = useState(false);
   const [gachaAnim, setGachaAnim] = useState(null); // 'falling', 'shaking', 'burst', 'revealed'
-  const { buyTier } = useGacha();
-  const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
-  const miningData = useMining(userHeroes, socketRef.current, wallet?.account?.address);
+  
   const [showRepairModal, setShowRepairModal] = useState(false);
   const [activeRepairType] = useState('all'); 
-
-  const [pvpStats, setPvpStats] = useState({ matches: 0, wins: 0, rank: 'Bronze' });
 
   // Long-press Popup State
   const [longPressHero, setLongPressHero] = useState(null);
@@ -203,17 +292,10 @@ function App() {
   // Withdrawal States
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawAddress, setWithdrawAddress] = useState('');
+  const [paymentRecipient, setPaymentRecipient] = useState(RECIPIENT_ADDRESS);
   
   // Real Balance State (from Blockchain)
   const [tonBalance, setTonBalance] = useState(0);
-  const [gameBalance, setGameBalance] = useState(() => {
-    const saved = localStorage.getItem('pixel_war_game_balance');
-    return saved ? parseFloat(saved) : 0;
-  });
-  const [devBalance, setDevBalance] = useState(() => {
-    const saved = localStorage.getItem('pixel_war_dev_balance');
-    return saved ? parseFloat(saved) : 0;
-  });
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
 
@@ -233,28 +315,6 @@ function App() {
 
   // Custom Themed Modal System
   const [successNotification, setSuccessNotification] = useState(null);
-  const [modalConfig, setModalConfig] = useState({ 
-    isOpen: false, 
-    type: 'alert', // 'alert' | 'confirm'
-    title: '', 
-    message: '', 
-    confirmText: '', 
-    cancelText: '',
-    onConfirm: null 
-  });
-
-  const triggerModal = (config) => {
-    setModalConfig({
-      isOpen: true,
-      type: config.type || 'alert',
-      title: config.title || '',
-      message: config.message || '',
-      confirmText: config.confirmText || '',
-      cancelText: config.cancelText || '',
-      onConfirm: config.onConfirm || null
-    });
-  };
-
   // Profile State
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('pixel_war_player_name') || 'Player1');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -417,7 +477,7 @@ function App() {
   };
 
   // Real Blockchain Payment Helper for GACHA
-  const executeRealTonPayment = async (amount, label, suppressNotification = false) => {
+  const executeRealTonPayment = async (amount, label, recipient = RECIPIENT_ADDRESS, suppressNotification = false) => {
     if (!wallet) {
       triggerModal({
         type: 'alert',
@@ -428,6 +488,7 @@ function App() {
       return false;
     }
 
+    setPaymentRecipient(recipient);
     setIsProcessingPayment(true);
     setPaymentError(null);
 
@@ -437,7 +498,7 @@ function App() {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [
           {
-            address: RECIPIENT_ADDRESS,
+            address: recipient,
             amount: (amount * 1000000000).toString(), // convert TON to nanoton
           }
         ]
@@ -446,19 +507,19 @@ function App() {
       const result = await tonConnectUI.sendTransaction(transaction);
       
       if (result) {
-        // Log real telegram notification for dev to see money coming into real wallet
+        const txId = typeof result === 'string' ? result : result?.id || result?.transactionId || result?.hash || null;
         setDevBalance(prev => {
-          const newBalance = prev + amount;
+          const newBalance = recipient === DEV_WALLET_ADDRESS ? prev + amount : prev - amount;
           if (!suppressNotification) {
             sendTelegramNotification('devFee', {
               amount: amount,
               totalDevBalance: newBalance,
-              round: `Real Payment: ${label}`
+              round: recipient === DEV_WALLET_ADDRESS ? `Real Payment: ${label}` : `Withdrawal: ${label}`
             });
           }
           return newBalance;
         });
-        return true;
+        return { success: true, transactionId: txId };
       }
       return false;
     } catch (e) {
@@ -570,32 +631,38 @@ function App() {
   };
   window.handleDepositSimulation = handleDepositSimulation;
 
-  const handleWithdrawSimulation = () => {
+  const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount <= 0 || amount > devBalance) return;
-    
-    const fees = amount * 0.1;
-    const net = amount - fees;
-    const newBalance = devBalance - amount;
-    
-    setDevBalance(newBalance);
-    const txData = {
-      type: 'withdrawal',
-      amount: amount,
-      fees: fees,
-      net: net,
-      address: withdrawAddress,
-      txId: '8926e9' + Math.random().toString(16).substring(2, 6) + '...' + Math.random().toString(16).substring(2, 6)
-    };
+    if (isNaN(amount) || amount <= 0) return;
+    if (!withdrawAddress) return;
+    if (!wallet) {
+      triggerModal({
+        type: 'alert',
+        title: t('modal.warning'),
+        message: 'Please connect the dev wallet first.',
+        confirmText: t('modal.understood')
+      });
+      return;
+    }
+    if (wallet?.account?.address !== DEV_WALLET_ADDRESS) {
+      triggerModal({
+        type: 'alert',
+        title: t('modal.warning'),
+        message: `Please connect the dev wallet: ${DEV_WALLET_ADDRESS}`,
+        confirmText: t('modal.understood')
+      });
+      return;
+    }
 
-    setSuccessNotification(txData);
-    setWithdrawAmount('');
-
-    // Send Telegram Notification
-    sendTelegramNotification('withdrawal', {
-      amount: amount,
-      txId: txData.txId
-    });
+    const result = await executeRealTonPayment(amount, 'Withdrawal', withdrawAddress);
+    if (result) {
+      setWithdrawAmount('');
+      setSuccessNotification({
+        type: 'withdrawal',
+        amount,
+        txId: result.transactionId || `tx_${Date.now()}`
+      });
+    }
   };
 
   const handleWithdrawAmountChange = (e) => {
@@ -1292,7 +1359,6 @@ function App() {
 
 
 
-        {/* EARN / WITHDRAW TAB */}
         {activeTab === 'earn' && (
           <section className="flex flex-col flex-1 animate-in fade-in duration-300 relative px-2">
             
@@ -1304,6 +1370,7 @@ function App() {
 
             <div className="relative z-10 w-full flex flex-col flex-1">
               <h2 className="text-base text-center py-2 mb-1 tracking-widest text-[#f1c40f] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] uppercase">{t('withdraw.title')}</h2>
+              <p className="text-[8px] text-gray-400 text-center uppercase tracking-[0.15em] mb-2">Connect with dev wallet: {DEV_WALLET_ADDRESS}</p>
               
               <div className="flex flex-col gap-3 px-1 pb-4">
                 
@@ -1380,7 +1447,7 @@ function App() {
                 <div className="mt-2 mb-4">
                   <button 
                     disabled={!withdrawAmount || !withdrawAddress}
-                    onClick={handleWithdrawSimulation}
+                    onClick={handleWithdraw}
                     className="w-full py-3 text-[11px] font-black tracking-[0.2em] text-[#111] flex justify-center items-center gap-2 transition-all relative overflow-hidden uppercase h-14"
                     style={{
                        backgroundColor: (!withdrawAmount || !withdrawAddress) ? '#333' : '#f1c40f',
@@ -1414,6 +1481,19 @@ function App() {
               </div>
             </div>
           </section>
+        )}
+
+        {/* MISSION TAB */}
+        {activeTab === 'mission' && (
+          <EarnFreeMech 
+            missionData={missionData}
+            triggerModal={triggerModal}
+            onOpenBox={() => {
+                // Logic to open box: 1. Deduct ticket on server 2. Add hero on client
+                socketRef.current.emit('mission:openBox');
+            }}
+            navigateToTab={(tab) => setActiveTab(tab)}
+          />
         )}
 
       </main>
@@ -2007,6 +2087,7 @@ function App() {
           {[
             { id: 'gacha', icon: IconGacha, label: t('nav.gacha') },
             { id: 'raid', icon: IconBattle, label: t('nav.battle') },
+            { id: 'mission', icon: IconMission, label: 'MISSION' },
             { id: 'arcade', icon: IconArcade, label: t('nav.arcade') },
             { id: 'earn', icon: IconEarn, label: t('nav.withdraw') },
           ].map((tab) => {
@@ -2317,7 +2398,7 @@ function App() {
           </p>
           
           <div className="mt-8 px-4 py-2 border border-white/10 bg-white/5 rounded text-[8px] font-mono text-gray-500 max-w-[240px] truncate">
-            TO: {RECIPIENT_ADDRESS}
+            TO: {paymentRecipient || RECIPIENT_ADDRESS}
           </div>
         </div>
       )}
