@@ -2024,7 +2024,7 @@ function App() {
                   <span className={`text-2xl mb-1.5 transition-all flex items-center justify-center ${isActive ? 'scale-110 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] z-10' : 'theme-nav-icon-inactive scale-90'}`}>
                     <tab.icon />
                   </span>
-                  <span className={`text-[11px] font-black tracking-widest z-10 ${isActive ? 'text-[#ffcc00] drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : 'theme-nav-text-inactive'}`}>
+                  <span className={`text-[8px] font-black tracking-tighter z-10 ${isActive ? 'text-[#ffcc00] drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : 'theme-nav-text-inactive'}`}>
                     {tab.label}
                   </span>
                   {tab.badge && (
