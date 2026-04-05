@@ -391,15 +391,21 @@ io.on('connection', (socket) => {
       await forceSync(wallet);
 
       const activeSlots = await MiningSlot.find({ wallet, heroData: { $ne: null } });
-      const cost = activeSlots.length * MINING_RECHARGE_FEE;
+      if (activeSlots.length === 0) return;
+
+      // Calculate total cost based on each robot's rarity
+      const totalCost = activeSlots.reduce((sum, slot) => {
+        const rarity = slot.heroData?.rarity || 'Common';
+        return sum + (TIER_PRICING[rarity] || 1);
+      }, 0);
 
       const player = await Player.findOne({ wallet });
-      if (!player || player.gameBalance < cost) {
-        socket.emit('mining:error', { message: `Insufficient balance. Need ${cost.toFixed(2)} TON` });
+      if (!player || player.gameBalance < totalCost) {
+        socket.emit('mining:error', { message: `Insufficient balance. Need ${totalCost.toFixed(2)} TON` });
         return;
       }
 
-      player.gameBalance -= cost;
+      player.gameBalance -= totalCost;
       await player.save();
 
       // Recharge all active slots
@@ -408,13 +414,55 @@ io.on('connection', (socket) => {
         { $set: { battery: 100 } }
       );
 
-      console.log(`[Mining] ${wallet.slice(0,8)}... recharged ${activeSlots.length} slots for ${cost.toFixed(2)} TON`);
+      console.log(`[Mining] ${wallet.slice(0,8)}... recharged ${activeSlots.length} slots (Tiered Pricing) for ${totalCost.toFixed(2)} TON`);
 
       const state = await getMiningState(wallet);
       socket.emit('mining:stateSync', state);
       socket.emit('playerStatus', { balance: player.gameBalance });
     } catch (err) {
       console.error('mining:rechargeAll error:', err);
+    }
+  });
+
+  // ─── Recharge Single Slot ───
+  socket.on('mining:rechargeSlot', async (data) => {
+    const { bossZone, slotIndex } = data;
+    const playerInfo = onlinePlayers.get(socket.id);
+    const wallet = playerInfo?.fullWallet;
+    if (!wallet || !bossZone || !slotIndex) return;
+
+    try {
+      await forceSync(wallet);
+
+      const slot = await MiningSlot.findOne({ wallet, bossZone, slotIndex });
+      if (!slot || !slot.heroData) {
+        socket.emit('mining:error', { message: "Slot is empty or invalid." });
+        return;
+      }
+
+      // Cost based on rarity
+      const rarity = slot.heroData.rarity || 'Common';
+      const rechargeCost = TIER_PRICING[rarity] || 1;
+
+      const player = await Player.findOne({ wallet });
+      if (!player || player.gameBalance < rechargeCost) {
+        socket.emit('mining:error', { message: `Insufficient balance. Need ${rechargeCost} TON for ${rarity} unit.` });
+        return;
+      }
+
+      player.gameBalance -= rechargeCost;
+      await player.save();
+
+      slot.battery = 100;
+      await slot.save();
+
+      console.log(`[Mining] ${wallet.slice(0,8)}... recharged ${rarity} slot ${slotIndex} in Zone ${bossZone} for ${rechargeCost} TON`);
+
+      const state = await getMiningState(wallet);
+      socket.emit('mining:stateSync', state);
+      socket.emit('playerStatus', { balance: player.gameBalance });
+    } catch (err) {
+      console.error('mining:rechargeSlot error:', err);
     }
   });
 

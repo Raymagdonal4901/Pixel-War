@@ -699,110 +699,113 @@ function App() {
   return (
     <div className="flex flex-col min-h-screen max-w-md mx-auto relative overflow-hidden bg-[var(--color-game-bg)] font-pixel text-[10px] sm:text-xs">
       
-      <header className="theme-header-bg sticky top-0 z-50 p-1.5 px-4 shadow-lg relative flex items-center justify-between border-b border-[#2a2d36] overflow-hidden min-h-[85px]">
-        
-        {/* LEFT SIDE: Logo */}
-        <div className="flex-shrink-0 relative z-10 py-1">
-          <div className="h-12 w-32 pointer-events-none flex items-center justify-center">
+      <header className="theme-header-bg sticky top-0 z-[60] p-3 px-4 shadow-[0_4px_25px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 border-b border-[#2a2d36] backdrop-blur-xl bg-black/60 overflow-hidden">
+        {/* Animated Header Background Glow */}
+        <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 w-[200px] h-[100px] bg-[#facc15]/10 blur-[100px] pointer-events-none"></div>
+
+        {/* LINE 1: BRANDING & TITLE */}
+        <div className="flex justify-center items-center w-full relative py-0.5">
+          <div className="h-10 sm:h-12 w-48 pointer-events-none relative flex items-center justify-center">
             <img 
               src="/logo.png" 
-              alt="Pixel War Logo" 
-              className="h-full w-full object-contain filter drop-shadow-[0_0_12px_rgba(255,215,0,0.5)] animate-pulse-slow scale-[1.1]" 
+              alt="Pixel War" 
+              className="h-full w-full object-contain filter drop-shadow-[0_0_15px_rgba(255,215,0,0.4)] animate-pulse-slow scale-[1.2]" 
             />
           </div>
         </div>
 
-        {/* RIGHT SIDE: 2-Row Stacked HUD */}
-        <div className="flex flex-col items-end gap-1.5 relative z-10 mr-5">
-          
-          {/* ROW 1: Primary Actions (Connect & Balance) */}
-          <div className="flex items-center gap-1.5">
-            <div className="origin-right scale-[0.4] sm:scale-55 h-6 flex items-center">
-              <TonConnectButton />
-            </div>
-            
-            {/* 1. Real Wallet Balance (TON) */}
-            <div className="flex items-center gap-1 bg-black/40 border border-[#3b4252] px-1 py-0.5 min-w-[55px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
-              <span className="flex items-center justify-center">
-                <IconTon className="w-2 h-2" />
-              </span>
-              <span className="text-white font-mono tracking-tight font-bold">{tonBalance.toFixed(2)}</span>
+        {/* LINE 2: FINANCIAL & WALLET TOOLBAR */}
+        <div className="flex items-center justify-start gap-1 w-full p-1 sm:p-1.5 bg-black/40 rounded-xl border border-white/5 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
+          {/* TON Connect Button - Scaled down for sleekness */}
+          <div className="origin-left scale-[0.45] sm:scale-60 h-7 flex items-center shrink-0">
+            <TonConnectButton />
+          </div>
+
+          <div className="flex items-center gap-1.5 -ml-8">
+            {/* Real TON Balance Badge */}
+            <div className="flex items-center gap-1.5 bg-[#1a1c23] border border-gray-700/50 px-2 py-1 rounded-lg text-[8px] font-bold shadow-md hover:border-gray-500 transition-all cursor-default">
+              <IconTon className="w-2.5 h-2.5 opacity-80" />
+              <span className="text-gray-300 font-mono tracking-tight">{tonBalance.toFixed(2)}</span>
             </div>
 
-            {/* 2. In-Game Wallet Balance (DIAMONDS/TON) */}
-            <div className="flex items-center gap-1 bg-gradient-to-r from-emerald-900/40 to-black/40 border border-emerald-500/50 px-1 py-0.5 min-w-[65px] justify-between text-[7px] hover:brightness-110 transition-all cursor-pointer shadow-inner rounded-sm relative group overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-400/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-              <span className="flex items-center justify-center">
-                <IconTon className="w-2.5 h-2.5 drop-shadow-[0_0_2px_#2ecc71]" />
+            {/* In-Game Virtual Balance Badge (Premium Styled) */}
+            <div className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-600/20 to-emerald-900/40 border border-emerald-500/40 px-2.5 py-1 rounded-lg text-[9px] font-black shadow-[0_0_15px_rgba(16,185,129,0.1)] group relative overflow-hidden active:scale-95 transition-all">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+              <IconTon className="w-3 h-3 drop-shadow-[0_0_5px_rgba(52,211,153,0.6)]" />
+              <span className="text-[#34d399] font-mono tracking-tight whitespace-nowrap flex items-center gap-1">
+                {gameBalance.toFixed(2)} <span className="text-[6px] opacity-70 uppercase">V-TON</span>
               </span>
-              <span className="text-emerald-400 font-mono tracking-tight font-bold">{gameBalance.toFixed(2)} <span className="text-[5px]">TON</span></span>
+            </div>
+          </div>
+        </div>
+
+        {/* LINE 3: COMMUNITY & PROFILE IDENTITY */}
+        <div className="flex items-center justify-between w-full h-6 px-0.5">
+          {/* Community Stats (Online/Total) */}
+          <div className="relative group/online">
+            <button className="flex items-center gap-2 px-2.5 py-1 bg-emerald-500/5 border border-emerald-500/20 rounded-full hover:bg-emerald-500/10 transition-all shadow-[0_0_8px_rgba(16,185,129,0.05)]">
+              <div className="flex items-center gap-1.5 pr-1.5 border-r border-emerald-500/20">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
+                <span className="text-emerald-400 text-[6.5px] font-black uppercase tracking-wider">
+                  {onlineCount} {t('players.online')}
+                </span>
+              </div>
+              <span className="text-gray-500 text-[6.5px] font-black uppercase tracking-wider opacity-60">
+                {totalPlayers} {t('players.total')}
+              </span>
+            </button>
+            
+            {/* Floating Dropdown List (Better Styled) */}
+            <div className="hidden group-hover/online:block absolute top-[120%] left-0 w-52 bg-[#0d0f14]/95 border border-emerald-500/30 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-[200] backdrop-blur-md animate-in slide-in-from-top-2 duration-200 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-emerald-500/20 bg-emerald-500/10">
+                <span className="text-[7px] text-emerald-400 font-black uppercase tracking-widest flex items-center gap-2">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></span>
+                  {t('players.online')} ({onlineCount})
+                </span>
+              </div>
+              <div className="max-h-48 overflow-y-auto custom-scrollbar p-1">
+                {onlinePlayers.length > 0 ? onlinePlayers.map((p, i) => (
+                  <div key={p.id || i} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/5">
+                    <div className="w-6 h-6 rounded bg-gray-800 flex items-center justify-center text-[8px] font-bold text-gray-500 border border-white/5">
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[9px] text-white font-bold truncate tracking-tight">{p.name}</span>
+                      {p.wallet && (
+                        <span className="text-[5px] text-gray-500 font-mono tracking-widest uppercase truncate">{p.wallet.slice(0, 10)}...</span>
+                      )}
+                    </div>
+                  </div>
+                )) : (
+                  <div className="px-4 py-4 text-center">
+                    <span className="text-[8px] text-gray-600 italic uppercase tracking-widest">No agents found</span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* ROW 2: Identity & Language */}
-          <div className="flex items-center gap-2">
-            {/* Online Status Indicator — Click to show player list */}
-            <div className="relative group/online">
-              <button 
-                className="flex items-center gap-1.5 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.1)] hover:bg-emerald-500/20 transition-all cursor-pointer"
-              >
-                <div className="flex items-center gap-1 border-r border-emerald-500/20 pr-1.5 mr-0.5">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,0.8)]"></span>
-                  <span className="text-emerald-400 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
-                    {onlineCount} {t('players.online') || 'ONLINE'}
-                  </span>
-                </div>
-                <span className="text-gray-500 text-[6px] font-black uppercase tracking-widest whitespace-nowrap">
-                  {totalPlayers} TOTAL
-                </span>
-              </button>
-              
-              {/* Dropdown: Online Players List */}
-              <div className="hidden group-hover/online:block absolute top-full left-0 mt-1 w-48 bg-[#0d0f14] border border-emerald-500/30 rounded-md shadow-[0_0_20px_rgba(16,185,129,0.15)] z-[999] overflow-hidden">
-                <div className="px-3 py-2 border-b border-emerald-500/20 bg-emerald-900/20">
-                  <span className="text-[7px] text-emerald-400 font-black uppercase tracking-[0.2em]">
-                    🟢 {t('players.online') || 'ONLINE'} ({onlineCount})
-                  </span>
-                </div>
-                <div className="max-h-40 overflow-y-auto no-scrollbar">
-                  {onlinePlayers.length > 0 ? onlinePlayers.map((p, i) => (
-                    <div key={p.id || i} className="flex items-center gap-2 px-3 py-1.5 border-b border-white/5 hover:bg-white/5 transition-colors">
-                      <span className="w-1 h-1 bg-emerald-400 rounded-full flex-shrink-0"></span>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-[8px] text-white font-bold truncate">{p.name}</span>
-                        {p.wallet && (
-                          <span className="text-[5px] text-gray-500 font-mono">{p.wallet}</span>
-                        )}
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="px-3 py-3 text-center">
-                      <span className="text-[7px] text-gray-600 italic">No players connected</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Player Identity (Name Only) */}
-            <div 
-              className="flex items-center cursor-pointer group"
+          {/* Player Identity & Settings Group */}
+          <div className="flex items-center gap-2.5">
+            {/* Profile Label/Edit Button */}
+            <button 
               onClick={() => setIsEditingProfile(true)}
+              className="flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 hover:border-yellow-500/40 transition-all group"
             >
-              <span className="text-white text-[9px] font-bold tracking-tight drop-shadow-md hover:text-yellow-400 transition-colors max-w-[60px] truncate">
+              <span className="text-white text-[9px] font-bold tracking-tight truncate max-w-[70px] drop-shadow-md group-hover:text-yellow-400 transition-all">
                 {playerName}
               </span>
-            </div>
+            </button>
 
-            {/* 3. Lang Toggle (Behind Name) */}
+            {/* Language Switch Capsule */}
             <button 
               onClick={toggleLang}
-              className="px-1.5 py-0.5 bg-black/30 border border-gray-600 hover:border-yellow-500 text-[6px] text-gray-300 hover:text-yellow-400 transition-all pixel-border-sm font-bold tracking-tight shadow-md"
+              className="h-6 flex items-center gap-1.5 px-2 bg-black/40 border border-gray-700/50 hover:border-yellow-500/60 rounded-lg text-[6.5px] font-black tracking-widest text-gray-400 hover:text-yellow-400 transition-all active:scale-95 shadow-lg group"
             >
+              <span className="opacity-50 group-hover:opacity-100">🌐</span>
               {lang === 'th' ? 'EN' : 'TH'}
             </button>
           </div>
-
         </div>
       </header>
 
@@ -1397,20 +1400,20 @@ function App() {
                   </button>
                 </div>
 
+                {/* Referral Hub Integrated into Withdraw Page */}
+                <div className="mt-8 border-t border-white/5 pt-6">
+                  <h3 className="text-[10px] text-gray-500 font-black uppercase tracking-[0.25em] mb-4 text-center">— {t('nav.referral')} SYSTEM —</h3>
+                  <ReferralHub 
+                    referralData={referralData} 
+                    onClaim={claimRewards} 
+                    balance={tonBalance} 
+                    triggerModal={triggerModal}
+                    resetReferrals={resetReferrals}
+                  />
+                </div>
               </div>
             </div>
           </section>
-        )}
-
-        {/* REFERRAL TAB */}
-        {activeTab === 'referral' && (
-          <ReferralHub 
-            referralData={referralData} 
-            onClaim={claimRewards} 
-            balance={tonBalance} 
-            triggerModal={triggerModal}
-            resetReferrals={resetReferrals}
-          />
         )}
 
       </main>
@@ -2005,7 +2008,6 @@ function App() {
             { id: 'gacha', icon: IconGacha, label: t('nav.gacha') },
             { id: 'raid', icon: IconBattle, label: t('nav.battle') },
             { id: 'arcade', icon: IconArcade, label: t('nav.arcade') },
-            { id: 'referral', icon: IconReferral, label: t('nav.referral') },
             { id: 'earn', icon: IconEarn, label: t('nav.withdraw') },
           ].map((tab) => {
             const isActive = activeTab === tab.id;

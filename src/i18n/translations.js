@@ -162,6 +162,7 @@ const translations = {
   'welcome.received': { th: 'คุณได้รับ: หุ่นยนต์ระดับ Common 3 ตัว!', en: 'You received: 3 Common Robots!' },
   'welcome.claim': { th: 'รับเลย!', en: 'CLAIM NOW!' },
   'players.online': { th: 'ออนไลน์', en: 'ONLINE' },
+  'players.total': { th: 'ทั้งหมด', en: 'TOTAL' },
   'pvp.cancelSearch': { th: 'ยกเลิกการค้นหา', en: 'CANCEL SEARCH' },
   'pvp.refund': { th: 'คืนเงิน {amount} TON', en: 'REFUND {amount} TON' },
 

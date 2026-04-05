@@ -279,6 +279,24 @@ export function useMining(userHeroes, socket, walletAddress) {
     }));
   }, [socket]);
 
+  const rechargeSlot = useCallback((podId) => {
+    if (!socket) return;
+    const currentBossIndex = miningState.currentBossIndex;
+    const bossZone = currentBossIndex + 1;
+
+    socket.emit('mining:rechargeSlot', { bossZone, slotIndex: podId });
+
+    // Optimistic update
+    setMiningState(prev => ({
+      ...prev,
+      lastUpdated: Date.now(),
+      zones: prev.zones.map(z => z.bossIndex === currentBossIndex ? {
+        ...z,
+        pods: z.pods.map(p => p.id === podId ? { ...p, battery: 100 } : p)
+      } : z)
+    }));
+  }, [socket, miningState.currentBossIndex]);
+
   const unlockPod = useCallback((podId) => {
     if (!socket) return;
     const currentBossIndex = miningState.currentBossIndex;
@@ -331,6 +349,7 @@ export function useMining(userHeroes, socket, walletAddress) {
     removeMech,
     rechargeAll,
     unlockPod,
+    rechargeSlot,
     claimYield,
     resetAllBosses
   };

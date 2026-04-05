@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useT } from '../i18n/LanguageContext';
 import Sprite from './Sprite';
-import { BASE_RATE_PER_ATK, MINING_RECHARGE_FEE, BOSSES } from '../data/tokenomics';
+import { BASE_RATE_PER_ATK, MINING_RECHARGE_FEE, TIER_PRICING, BOSSES } from '../data/tokenomics';
 
 const TIER_TO_RARITY = { 1: 'Common', 2: 'Rare', 3: 'SR', 4: 'Epic', 5: 'Legendary' };
 
@@ -12,7 +12,7 @@ function IdleMining({
   onClaim
 }) {
   const { t } = useT();
-  const { miningState, claimYield, unlockPod, removeMech, rechargeAll } = miningData;
+  const { miningState, claimYield, unlockPod, removeMech, rechargeSlot } = miningData;
   const [showAssignModal, setShowAssignModal] = useState(null); // podId
 
   const { currentBossIndex, zones } = miningState;
@@ -46,18 +46,17 @@ function IdleMining({
     });
   };
 
-  const handleRechargeAll = async () => {
-    const activePodsCount = zones.flatMap(z => z.pods).filter(p => p.heroInstanceId || p.heroData).length;
-    if (activePodsCount === 0) return;
+  const handleRechargeSlot = (pod) => {
+    const rarity = pod.heroData?.rarity || 'Common';
+    const cost = TIER_PRICING[rarity] || 1;
     
-    const cost = activePodsCount * MINING_RECHARGE_FEE;
     triggerModal({
       type: 'confirm',
-      title: t('mining.rechargeAll'),
-      message: `${t('mining.rechargeConfirm')} ${cost.toFixed(2)} TON`,
+      title: t('mining.rechargeSlot'),
+      message: `${t('mining.rechargeConfirm')} ${cost} TON?`,
       confirmText: 'RECHARGE',
       onConfirm: () => {
-        rechargeAll();
+        rechargeSlot(pod.id);
       }
     });
   };
@@ -167,75 +166,104 @@ function IdleMining({
                 <div className="absolute top-1 left-2 text-[8px] text-gray-500 font-bold">SLOT {i + 1}</div>
                 
                 {/* Lock Status overlay style */}
-                <div className={`absolute top-0 right-0 w-8 h-8 flex justify-center items-center rounded-bl-lg ${pod.unlocked ? 'bg-[#00ffcc]/20' : 'bg-red-900/40'}`}>
-                   {pod.unlocked ? <span className="text-[#00ffcc] text-[10px]">🔓</span> : <span className="text-red-500 text-[10px]">🔒</span>}
-                </div>
-
                 {isWorking && hero ? (
                   <>
-                    {/* Working Mech */}
-                    <div className="w-16 h-16 bg-black/60 border border-[#00ffcc]/30 flex-shrink-0 flex items-center justify-center relative shadow-inner">
-                      <div className="w-12 h-12 transform scale-110 drop-shadow-[0_0_5px_rgba(0,255,204,0.5)]">
-                        <Sprite char={hero} />
-                      </div>
-                    </div>
-                    
-                    <div className="ml-4 flex-1">
-                      <div className="flex justify-between items-end mb-0.5">
-                        <div className="text-[10px] text-white font-bold truncate">{hero.name}</div>
-                        {(() => {
-                          let cooldownStr = null;
-                          if (pod.assignedAt) {
-                            const oneHourMs = 60 * 60 * 1000;
-                            const timeElapsed = Date.now() - pod.assignedAt;
-                            if (timeElapsed < oneHourMs) {
-                              const timeLeftMs = oneHourMs - timeElapsed;
-                              const min = Math.floor(timeLeftMs / 60000);
-                              const sec = Math.floor((timeLeftMs % 60000) / 1000);
-                              cooldownStr = `🔒 ${min}m ${sec}s`;
-                            }
-                          }
-                          
-                          if (cooldownStr) {
-                            return (
-                              <button 
-                                disabled
-                                className="text-[8px] text-gray-500 cursor-not-allowed opacity-80 shrink-0 ml-2"
-                              >
-                                {cooldownStr}
-                              </button>
-                            );
-                          }
+                    {pod.battery === 0 ? (
+                      /* Offline Mech Mode */
+                      <>
+                        <div className="w-16 h-16 bg-black/80 border border-red-500/30 flex-shrink-0 flex items-center justify-center relative grayscale">
+                          <div className="absolute inset-0 bg-red-900/10 z-10"></div>
+                          <div className="w-12 h-12 opacity-50">
+                            <Sprite char={hero} />
+                          </div>
+                          <div className="absolute -top-1 -right-1 bg-red-600 text-[6px] text-white px-1 font-black rounded z-20 animate-pulse uppercase">OFFLINE</div>
+                        </div>
 
-                          return (
+                        <div className="ml-4 flex-1">
+                          <div className="text-[10px] text-gray-400 font-bold mb-1 italic">POWER DEPLETED</div>
+                          <div className="flex gap-2">
+                             <button 
+                              onClick={() => handleRechargeSlot(pod)}
+                              className="flex-1 bg-[#f39c12] hover:bg-[#e67e22] text-black text-[9px] font-black py-2 pixel-border-sm transition-all flex items-center justify-center gap-1 shadow-[0_3px_0_#d35400] active:shadow-none active:translate-y-[2px]"
+                            >
+                              ⚡ RECHARGE ({TIER_PRICING[hero.rarity] || 1} TON)
+                            </button>
                             <button 
                               onClick={() => handleRemove(pod.id)}
-                              className="text-[8px] text-red-400 hover:text-red-300 underline shrink-0 ml-2"
+                              className="bg-gray-800 hover:bg-black text-white text-[9px] font-bold px-3 py-2 border border-white/10 transition-all flex items-center justify-center gap-1"
                             >
-                              {t('mining.remove')}
+                              🗑️ {t('mining.remove')}
                             </button>
-                          );
-                        })()}
-                      </div>
-                      
-                      <div className="text-[9px] text-[#e74c3c] font-bold mb-0.5">
-                        ⚔️ ATK: {hero.atk || 0} <span className="text-gray-400 font-normal">(Grade {hero.grade || 'B'})</span>
-                      </div>
-                      <div className="text-[9px] text-[#00ffcc] font-mono font-bold tracking-widest drop-shadow-[0_0_2px_rgba(0,255,204,0.5)] mb-1.5">
-                        💰 +{((hero.atk || 0) * BASE_RATE_PER_ATK).toFixed(3)} {t('mining.perDay')}
-                      </div>
-                      
-                      {/* Battery Bar */}
-                      <div className="w-full bg-gray-900 h-2 border border-blue-900 relative">
-                        <div 
-                          className="h-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.8)] transition-all"
-                          style={{ width: `${Math.max(0, pod.battery || 0)}%`, backgroundColor: (pod.battery || 0) < 20 ? '#ef4444' : '#3b82f6' }}
-                        ></div>
-                        <div className="absolute inset-0 flex items-center justify-center text-[6px] text-white font-bold mix-blend-difference">
-                          {(pod.battery || 0).toFixed(0)}%
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      </>
+                    ) : (
+                      /* Working Mech Mode */
+                      <>
+                        <div className="w-16 h-16 bg-black/60 border border-[#00ffcc]/30 flex-shrink-0 flex items-center justify-center relative shadow-inner">
+                          <div className="w-12 h-12 transform scale-110 drop-shadow-[0_0_5px_rgba(0,255,204,0.5)]">
+                            <Sprite char={hero} />
+                          </div>
+                        </div>
+                        
+                        <div className="ml-4 flex-1">
+                          <div className="flex justify-between items-end mb-0.5">
+                            <div className="text-[10px] text-white font-bold truncate">{hero.name}</div>
+                            {(() => {
+                              let cooldownStr = null;
+                              if (pod.assignedAt) {
+                                const oneHourMs = 60 * 60 * 1000;
+                                const timeElapsed = Date.now() - pod.assignedAt;
+                                if (timeElapsed < oneHourMs) {
+                                  const timeLeftMs = oneHourMs - timeElapsed;
+                                  const min = Math.floor(timeLeftMs / 60000);
+                                  const sec = Math.floor((timeLeftMs % 60000) / 1000);
+                                  cooldownStr = `🔒 ${min}m ${sec}s`;
+                                }
+                              }
+                              
+                              if (cooldownStr) {
+                                return (
+                                  <button 
+                                    disabled
+                                    className="text-[8px] text-gray-500 cursor-not-allowed opacity-80 shrink-0 ml-2"
+                                  >
+                                    {cooldownStr}
+                                  </button>
+                                );
+                              }
+
+                              return (
+                                <button 
+                                  onClick={() => handleRemove(pod.id)}
+                                  className="text-[8px] text-red-400 hover:text-red-300 underline shrink-0 ml-2"
+                                >
+                                  {t('mining.remove')}
+                                </button>
+                              );
+                            })()}
+                          </div>
+                          
+                          <div className="text-[9px] text-[#e74c3c] font-bold mb-0.5">
+                            ⚔️ ATK: {hero.atk || 0} <span className="text-gray-400 font-normal">(Grade {hero.grade || 'B'})</span>
+                          </div>
+                          <div className="text-[9px] text-[#00ffcc] font-mono font-bold tracking-widest drop-shadow-[0_0_2px_rgba(0,255,204,0.5)] mb-1.5">
+                            💰 +{((hero.atk || 0) * BASE_RATE_PER_ATK).toFixed(3)} {t('mining.perDay')}
+                          </div>
+                          
+                          {/* Battery Bar */}
+                          <div className="w-full bg-gray-900 h-2 border border-blue-900 relative">
+                            <div 
+                              className="h-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.8)] transition-all"
+                              style={{ width: `${Math.max(0, pod.battery || 0)}%`, backgroundColor: (pod.battery || 0) < 20 ? '#ef4444' : '#3b82f6' }}
+                            ></div>
+                            <div className="absolute inset-0 flex items-center justify-center text-[6px] text-white font-bold mix-blend-difference">
+                              {(pod.battery || 0).toFixed(0)}%
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </>
                 ) : isEmpty ? (
                   <>
@@ -266,14 +294,6 @@ function IdleMining({
             );
           })}
         </div>
-
-        {/* Bottom Section: RECHARGE ALL */}
-        <button 
-          onClick={handleRechargeAll}
-          className="w-full bg-[#f39c12] hover:bg-[#e67e22] text-black py-4 font-black tracking-[0.2em] shadow-[0_5px_0_#d35400] active:shadow-none active:translate-y-[5px] transition-all flex justify-center items-center gap-2 mb-4"
-        >
-          <span className="text-xl">⚡</span> {t('mining.rechargeAll')}
-        </button>
 
       {/* Assign Modal */}
       {showAssignModal && (
