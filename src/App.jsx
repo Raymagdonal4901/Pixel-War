@@ -521,10 +521,10 @@ function App() {
             return newBalance;
           });
         } else if (!suppressNotification) {
-          sendTelegramNotification('devFee', {
+          // Withdrawal notification
+          sendTelegramNotification('withdrawal', {
             amount: amount,
-            totalDevBalance: devBalance,
-            round: `Withdrawal: ${label}`
+            txId: txId || `tx_${Date.now()}`
           });
         }
         return { success: true, transactionId: txId };
@@ -639,7 +639,7 @@ function App() {
   };
   window.handleDepositSimulation = handleDepositSimulation;
 
-  const handleWithdraw = () => {
+  const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     if (isNaN(amount) || amount <= 0) return;
     if (amount > gameBalance) {
@@ -652,22 +652,55 @@ function App() {
       return;
     }
     if (!withdrawAddress) return;
+    if (!wallet) {
+      triggerModal({
+        type: 'alert',
+        title: t('modal.warning'),
+        message: 'Please connect your wallet first.',
+        confirmText: t('modal.understood')
+      });
+      return;
+    }
+    if (wallet?.account?.address !== DEV_WALLET_ADDRESS) {
+      triggerModal({
+        type: 'alert',
+        title: t('modal.warning'),
+        message: `Only the DEV wallet can process withdrawals.`,
+        confirmText: t('modal.understood')
+      });
+      return;
+    }
 
     // Calculate net amount after fee
     const fee = amount * 0.1;
     const netAmount = amount - fee;
 
-    // Deduct from V-TON balance and show success notification
+    // Deduct from V-TON balance first
     setGameBalance(prev => prev - amount);
-    setWithdrawAmount('');
-    setWithdrawAddress('');
-    setSuccessNotification({
-      type: 'withdrawal',
-      amount: netAmount,
-      address: withdrawAddress,
-      net: netAmount,
-      txId: `tx_${Date.now()}`
-    });
+    
+    // Send real TON from DEV wallet
+    const result = await executeRealTonPayment(netAmount, `Withdrawal to ${withdrawAddress.substring(0, 8)}...`, withdrawAddress);
+    
+    if (result && result.success) {
+      setWithdrawAmount('');
+      setWithdrawAddress('');
+      setSuccessNotification({
+        type: 'withdrawal',
+        amount: netAmount,
+        address: withdrawAddress,
+        net: netAmount,
+        txId: result.transactionId || `tx_${Date.now()}`
+      });
+    } else {
+      // Refund if transaction failed
+      setGameBalance(prev => prev + amount);
+      triggerModal({
+        type: 'alert',
+        title: 'WITHDRAWAL FAILED',
+        message: 'The TON transaction failed. Your V-TON has been refunded.',
+        confirmText: 'OK'
+      });
+    }
   };
 
   const handleWithdrawAmountChange = (e) => {
