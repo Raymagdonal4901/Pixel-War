@@ -767,12 +767,9 @@ function App() {
 
     const cost = TIER_PRICING[rarity];
 
-    // Skip payment in test mode
-    if (!testMode) {
-      // Await Real Blockchain Payment
-      const success = await executeRealTonPayment(cost, `Buy ${rarity} Robot`);
-      if (!success) return;
-    }
+    // Deduct from player's real TON wallet via blockchain payment
+    const success = await executeRealTonPayment(cost, `Buy ${rarity} Mech`);
+    if (!success) return;
 
     setIsPulling(true);
     setPullResult(null);

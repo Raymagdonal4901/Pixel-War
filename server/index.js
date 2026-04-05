@@ -15,10 +15,19 @@ import MiningSlot from './models/MiningSlot.js';
 import { TIER_PRICING, TIER_TO_RARITY, MINING_RECHARGE_FEE } from './tokenomics.js';
 import { processHourlySync, forceSync, getMiningState } from './miningEngine.js';
 import { getMissionStatus, processCheckIn, completeSocialTask, processCraft } from './missionEngine.js';
+import tonWalletService from './services/tonWallet.js';
 
 // Connect to MongoDB
 connectDB().then(() => {
   console.log('✅ Base DB Connected.');
+});
+
+// Initialize TON Wallet Service
+tonWalletService.initialize().then(() => {
+  console.log('✅ TON Wallet Service Ready');
+}).catch((err) => {
+  console.error('⚠️ TON Wallet Service failed to initialize:', err.message);
+  console.error('⚠️ Withdrawals will not work until TON wallet is configured properly');
 });
 
 const app = express();
@@ -681,41 +690,44 @@ app.post('/api/withdraw', async (req, res) => {
 
     console.log(`[Withdrawal] ${wallet.slice(0, 8)}... requesting ${amount} TON to ${destinationAddress.slice(0, 8)}...`);
 
-    // For now, just record the withdrawal in database
-    // Treasury wallet must be processed manually or via separate service
     try {
       const player = await Player.findOne({ wallet });
       if (!player) {
         return res.status(404).json({ error: 'Player not found' });
       }
 
-      // Check balance
       if (player.gameBalance < amount) {
         return res.status(400).json({ error: 'Insufficient balance' });
       }
 
-      // Deduct from game balance
-      player.gameBalance -= amount;
-      
-      // Store withdrawal request for auditing
-      const withdrawalRecord = {
-        timestamp: new Date(),
-        playerWallet: wallet,
-        amount: amount,
-        destination: destinationAddress,
-        status: 'pending', // pending, sent, confirmed
-        txId: null
-      };
+      const treasuryBalance = await tonWalletService.getBalance();
+      console.log(`[Withdrawal] Treasury balance: ${treasuryBalance.toFixed(4)} TON`);
 
-      // You could save this to a withdrawals collection if needed
-      // For now, just save player balance
+      if (treasuryBalance < amount) {
+        console.error(`[Withdrawal] ❌ Insufficient treasury balance: ${treasuryBalance} < ${amount}`);
+        return res.status(503).json({ 
+          error: 'Insufficient treasury balance', 
+          details: 'Please contact support'
+        });
+      }
+
+      console.log(`[Withdrawal] Sending ${amount} TON from treasury to ${destinationAddress}...`);
+      
+      const txResult = await tonWalletService.sendTon(
+        destinationAddress, 
+        amount,
+        `Pixel War Withdrawal - ${wallet.slice(0, 8)}...`
+      );
+
+      if (!txResult.success) {
+        throw new Error('Transaction failed');
+      }
+
+      player.gameBalance -= amount;
       await player.save();
 
-      const txId = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log(`[Withdrawal] ✅ Success! TX: ${txResult.txHash}`);
 
-      console.log(`[Withdrawal] ✅ Recorded: ${amount} TON to ${destinationAddress} (ref: ${txId})`);
-
-      // Notify the player's socket about the balance update
       const playerSocket = Array.from(onlinePlayers.entries()).find(
         ([sid, info]) => info.fullWallet === wallet
       );
@@ -724,25 +736,18 @@ app.post('/api/withdraw', async (req, res) => {
         io.to(socketId).emit('withdrawal:success', {
           newBalance: player.gameBalance,
           amount,
-          txId,
+          txId: txResult.txHash,
           destination: destinationAddress
         });
       }
 
-      // TODO: Send actual TON via treasury wallet
-      // This could be done via:
-      // - TonHub API (if you have an account)
-      // - TonCenter API with your wallet setup
-      // - External service that handles TON transactions
-      // - Manual operator processing
-
       return res.json({
         success: true,
-        txId,
+        txId: txResult.txHash,
         amount,
         destination: destinationAddress,
         newBalance: player.gameBalance,
-        message: 'Withdrawal recorded. Please allow 1-5 minutes for processing.'
+        message: 'Withdrawal successful! TON has been sent to your wallet.'
       });
 
     } catch (dbErr) {
