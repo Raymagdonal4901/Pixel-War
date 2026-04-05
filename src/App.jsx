@@ -156,7 +156,7 @@ function App() {
   const [gachaAnim, setGachaAnim] = useState(null); // 'falling', 'shaking', 'burst', 'revealed'
   const { buyTier } = useGacha();
   const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
-  const miningData = useMining(userHeroes, socketRef.current);
+  const miningData = useMining(userHeroes, socketRef.current, wallet?.account?.address);
   const [showRepairModal, setShowRepairModal] = useState(false);
   const [activeRepairType] = useState('all'); 
 
@@ -947,12 +947,6 @@ function App() {
                     sendTelegramNotification={sendTelegramNotification}
                     onClaim={(amount) => {
                       setGameBalance(prev => prev + amount);
-                      triggerModal({
-                        type: 'alert',
-                        title: 'CLAIM SUCCESSFUL',
-                        message: `You successfully claimed ${amount.toFixed(4)} TON from the Idle Mining Facility!`,
-                        confirmText: 'OK'
-                      });
                     }}
                   />
                 </>

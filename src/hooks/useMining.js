@@ -10,9 +10,9 @@ const TIER_TO_RARITY = { 1: 'Common', 2: 'Rare', 3: 'SR', 4: 'Epic', 5: 'Legenda
  * Client predicts HP/yield changes locally every second for smooth UI.
  * All actions are sent via socket, and server overwrites state on sync.
  */
-export function useMining(userHeroes, socket) {
+export function useMining(userHeroes, socket, walletAddress) {
   const [miningState, setMiningState] = useState(() => {
-    // Generate empty zones for initial render before server responds
+    // 1. Fallback: Generate empty zones for initial render
     const freshZones = BOSSES.map((boss, index) => {
       const unlockCost = TIER_PRICING[TIER_TO_RARITY[boss.tier]] || 1;
       return {
@@ -41,8 +41,47 @@ export function useMining(userHeroes, socket) {
       serverSynced: false
     };
   });
-
+  
   const lastSyncRef = useRef(null);
+
+  // ─── Hydrate from Cache on Wallet Connect/Refresh ───
+  useEffect(() => {
+    if (!walletAddress) return;
+
+    // Only hydrate if we haven't synced with the server yet
+    if (!miningState.serverSynced) {
+      const cached = localStorage.getItem(`pixel_war_mining_cache_${walletAddress}`);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          const hasBots = parsed.zones?.some(z => z.pods?.some(p => p.heroInstanceId || p.heroData));
+          
+          if (hasBots) {
+            setMiningState({
+              ...parsed,
+              serverSynced: false,
+              lastUpdated: Date.now()
+            });
+          }
+        } catch (e) {
+          console.warn('[Mining Hook] Hydration failed:', e);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walletAddress]); // Only re-run when wallet changes
+
+  // ─── Persist to Cache (with Protection) ───
+  useEffect(() => {
+    if (!walletAddress) return;
+
+    // PROTECTION: Don't save if state is empty AND not synced with server
+    const hasBots = miningState.zones?.some(z => z.pods?.some(p => p.heroInstanceId || p.heroData));
+    
+    if (miningState.serverSynced || hasBots) {
+      localStorage.setItem(`pixel_war_mining_cache_${walletAddress}`, JSON.stringify(miningState));
+    }
+  }, [miningState, walletAddress]);
 
   // ─── Listen for server state sync ───
   useEffect(() => {
