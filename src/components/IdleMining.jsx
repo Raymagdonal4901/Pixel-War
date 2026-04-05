@@ -222,7 +222,7 @@ function IdleMining({
                         ⚔️ ATK: {hero.atk || 0} <span className="text-gray-400 font-normal">(Grade {hero.grade || 'B'})</span>
                       </div>
                       <div className="text-[9px] text-[#00ffcc] font-mono font-bold tracking-widest drop-shadow-[0_0_2px_rgba(0,255,204,0.5)] mb-1.5">
-                        💰 +{((hero.atk || 0) * BASE_RATE_PER_ATK).toFixed(3)} TON / {t('mining.perDay')}
+                        💰 +{((hero.atk || 0) * BASE_RATE_PER_ATK).toFixed(3)} {t('mining.perDay')}
                       </div>
                       
                       {/* Battery Bar */}
