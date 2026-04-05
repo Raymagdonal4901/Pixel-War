@@ -642,35 +642,29 @@ function App() {
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     if (isNaN(amount) || amount <= 0) return;
-    if (amount > tonBalance) {
+    if (amount > gameBalance) {
       triggerModal({
         type: 'alert',
-        title: 'INSUFFICIENT TON',
-        message: `Your wallet only has ${tonBalance.toFixed(2)} TON available.`,
+        title: 'INSUFFICIENT V-TON',
+        message: `Your V-TON balance only has ${gameBalance.toFixed(2)} available.`,
         confirmText: 'OK'
       });
       return;
     }
     if (!withdrawAddress) return;
-    if (!wallet) {
-      triggerModal({
-        type: 'alert',
-        title: t('modal.warning'),
-        message: 'Please connect your wallet first.',
-        confirmText: t('modal.understood')
-      });
-      return;
-    }
 
-    const result = await executeRealTonPayment(amount, 'Withdrawal', withdrawAddress);
-    if (result) {
-      setWithdrawAmount('');
+    // Deduct from V-TON balance
+    setGameBalance(prev => {
+      const newBalance = prev - amount;
       setSuccessNotification({
         type: 'withdrawal',
         amount,
-        txId: result.transactionId || `tx_${Date.now()}`
+        txId: `tx_${Date.now()}`
       });
-    }
+      return newBalance;
+    });
+    
+    setWithdrawAmount('');
   };
 
   const handleWithdrawAmountChange = (e) => {
@@ -1385,7 +1379,7 @@ function App() {
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-end px-1">
                     <span className="text-[9px] text-gray-400 font-bold uppercase">{t('withdraw.amountLabel')}</span>
-                    <span className="text-[7px] text-[#2ecc71] font-bold">{t('withdraw.max')}: {tonBalance.toFixed(2)} TON</span>
+                    <span className="text-[7px] text-[#2ecc71] font-bold">{t('withdraw.max')}: {gameBalance.toFixed(2)} V-TON</span>
                   </div>
                   <div className="flex items-stretch h-12 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all">
                     <input 
@@ -1395,7 +1389,7 @@ function App() {
                       placeholder="0.00"
                       className="flex-1 bg-transparent border-none text-white px-3 text-right font-mono text-base outline-none placeholder:text-gray-800"
                     />
-                    <button onClick={() => setWithdrawAmount(tonBalance.toString())} className="h-full px-3 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
+                    <button onClick={() => setWithdrawAmount(gameBalance.toString())} className="h-full px-3 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
                       <IconTon className="w-5 h-5 mx-auto" />
                     </button>
                   </div>
