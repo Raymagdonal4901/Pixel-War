@@ -100,9 +100,6 @@ function App() {
   const [pullResult, setPullResult] = useState(null);
   const [isPulling, setIsPulling] = useState(false);
   const [showRates, setShowRates] = useState(false);
-  const [testMode, setTestMode] = useState(() => {
-    return localStorage.getItem('pixel_war_test_mode') === 'true';
-  });
 
   // ─── ROSTER & MISSIONS HOOKS ───
   const { buyTier } = useGacha();
@@ -360,11 +357,6 @@ function App() {
   useEffect(() => {
     localStorage.setItem('pixel_war_pvp_quota', JSON.stringify(pvpQuota));
   }, [pvpQuota]);
-
-  // Persist testMode when changed
-  useEffect(() => {
-    localStorage.setItem('pixel_war_test_mode', testMode ? 'true' : 'false');
-  }, [testMode]);
 
   useEffect(() => {
     localStorage.setItem('pixel_war_player_name', playerName);
@@ -1068,15 +1060,8 @@ function App() {
             ></div>
             
             <div className="relative z-10 w-full flex flex-col items-center flex-1 lg:max-w-md mx-auto">
-              <div className="w-full flex justify-center items-center mb-1 px-3 mt-1 gap-2">
+              <div className="w-full flex justify-center items-center mb-1 px-3 mt-1">
                   <h2 className="text-[9px] text-[var(--color-pixel)] drop-shadow-md font-pixel tracking-widest uppercase">{t('gacha.portalTitle')}</h2>
-                  <button 
-                    onClick={() => setTestMode(!testMode)}
-                    className={`text-[7px] px-2 py-1 font-bold rounded-sm transition-all ${testMode ? 'bg-green-600 text-white border border-green-400' : 'bg-gray-600 text-gray-300 border border-gray-500'}`}
-                    title="Toggle test mode for free gacha pulls"
-                  >
-                    {testMode ? '✓ TEST' : 'TEST'}
-                  </button>
               </div>
 
               {/* 3+2 Robot Previews with Stats */}
@@ -1145,15 +1130,9 @@ function App() {
                           </div>
                           
                           {/* Price Button Box */}
-                          <div className="mt-3 bg-black border-2 px-3 py-1 flex items-center justify-center gap-1.5 shadow-xl min-w-[60px]" style={{ borderColor: testMode ? '#10b981' : color }}>
-                             {testMode ? (
-                               <span className="text-green-400 text-[12px] font-black leading-none">FREE</span>
-                             ) : (
-                               <>
-                                 <IconTon className="w-3 h-3" />
-                                 <span className="text-white text-[12px] font-black leading-none">{cost}</span>
-                               </>
-                             )}
+                          <div className="mt-3 bg-black border-2 px-3 py-1 flex items-center justify-center gap-1.5 shadow-xl min-w-[60px]" style={{ borderColor: color }}>
+                            <IconTon className="w-3 h-3" />
+                            <span className="text-white text-[12px] font-black leading-none">{cost}</span>
                           </div>
                         </button>
                       );
