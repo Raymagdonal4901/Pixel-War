@@ -639,7 +639,7 @@ function App() {
   };
   window.handleDepositSimulation = handleDepositSimulation;
 
-  const handleWithdraw = async () => {
+  const handleWithdraw = () => {
     const amount = parseFloat(withdrawAmount);
     if (isNaN(amount) || amount <= 0) return;
     if (amount > gameBalance) {
@@ -653,18 +653,21 @@ function App() {
     }
     if (!withdrawAddress) return;
 
-    // Deduct from V-TON balance
-    setGameBalance(prev => {
-      const newBalance = prev - amount;
-      setSuccessNotification({
-        type: 'withdrawal',
-        amount,
-        txId: `tx_${Date.now()}`
-      });
-      return newBalance;
-    });
-    
+    // Calculate net amount after fee
+    const fee = amount * 0.1;
+    const netAmount = amount - fee;
+
+    // Deduct from V-TON balance and show success notification
+    setGameBalance(prev => prev - amount);
     setWithdrawAmount('');
+    setWithdrawAddress('');
+    setSuccessNotification({
+      type: 'withdrawal',
+      amount: netAmount,
+      address: withdrawAddress,
+      net: netAmount,
+      txId: `tx_${Date.now()}`
+    });
   };
 
   const handleWithdrawAmountChange = (e) => {
