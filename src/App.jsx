@@ -4,6 +4,7 @@ import { BOSSES, GACHA_COST_TON, DROP_RATES, REPAIR_FEE_PERCENT, calcRepairCost,
 import { useGacha } from './hooks/useGacha';
 import { useHeroRoster } from './hooks/useHeroRoster';
 import { TonConnectButton, useTonWallet, useTonConnectUI } from '@tonconnect/ui-react';
+import { TonClient, internal } from '@ton/ton';
 import PvpArena from './components/PvpArena';
 import Sprite from './components/Sprite';
 import ArcadeBetting from './components/ArcadeBetting';
@@ -494,13 +495,19 @@ function App() {
 
     try {
       console.log(`Starting Blockchain Transaction: ${label || 'Transaction'}...`);
+      
+      // Create transaction using TON SDK internal helper
+      const amountInNano = Math.floor(amount * 1000000000).toString();
       const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [
-          {
-            address: recipient,
-            amount: (amount * 1000000000).toString(), // convert TON to nanoton
-          }
+          internal({
+            to: recipient,
+            value: amountInNano,
+            body: null,
+            bounce: true,
+            init: null
+          })
         ]
       };
 
