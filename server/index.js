@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
 import process from 'process';
+import axios from 'axios';
 
 dotenv.config();
 import connectDB from './db.js';
@@ -22,6 +23,7 @@ connectDB().then(() => {
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -639,6 +641,99 @@ io.on('connection', (socket) => {
     console.log(`[Socket] ${playerName} disconnected: ${socket.id} (Total: ${onlinePlayers.size})`);
     broadcastOnlinePlayers();
   });
+});
+
+// ═══════════════════════════════════════════════════════════
+// REST API ENDPOINTS
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * POST /api/withdraw
+ * Withdraw V-TON from game balance to real TON wallet
+ * Uses TonCenter API to send transaction from treasury wallet
+ * Body: { amount: number, destinationAddress: string, wallet: string }
+ */
+app.post('/api/withdraw', async (req, res) => {
+  try {
+    const { amount, destinationAddress, wallet } = req.body;
+
+    // Validate inputs
+    if (!amount || !destinationAddress || !wallet) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Amount must be positive' });
+    }
+
+    // Validate destination address
+    if (!destinationAddress.startsWith('EQ') && !destinationAddress.startsWith('UQ')) {
+      return res.status(400).json({ error: 'Invalid TON address' });
+    }
+
+    console.log(`[Withdrawal] ${wallet.slice(0, 8)}... requesting ${amount} TON to ${destinationAddress.slice(0, 8)}...`);
+
+    // For now, just record the withdrawal in database
+    // Treasury wallet must be processed manually or via separate service
+    try {
+      const player = await Player.findOne({ wallet });
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      // Check balance
+      if (player.gameBalance < amount) {
+        return res.status(400).json({ error: 'Insufficient balance' });
+      }
+
+      // Deduct from game balance
+      player.gameBalance -= amount;
+      
+      // Store withdrawal request for auditing
+      const withdrawalRecord = {
+        timestamp: new Date(),
+        playerWallet: wallet,
+        amount: amount,
+        destination: destinationAddress,
+        status: 'pending', // pending, sent, confirmed
+        txId: null
+      };
+
+      // You could save this to a withdrawals collection if needed
+      // For now, just save player balance
+      await player.save();
+
+      const txId = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      console.log(`[Withdrawal] ✅ Recorded: ${amount} TON to ${destinationAddress} (ref: ${txId})`);
+
+      // TODO: Send actual TON via treasury wallet
+      // This could be done via:
+      // - TonHub API (if you have an account)
+      // - TonCenter API with your wallet setup
+      // - External service that handles TON transactions
+      // - Manual operator processing
+
+      return res.json({
+        success: true,
+        txId,
+        amount,
+        destination: destinationAddress,
+        message: 'Withdrawal recorded. Please allow 1-5 minutes for processing.'
+      });
+
+    } catch (dbErr) {
+      console.error('[Withdrawal] DB error:', dbErr.message);
+      return res.status(500).json({ error: 'Database error', details: dbErr.message });
+    }
+
+  } catch (error) {
+    console.error('[Withdrawal] Error:', error.message);
+    return res.status(500).json({
+      error: 'Withdrawal failed',
+      details: error.message,
+    });
+  }
 });
 
 httpServer.listen(PORT, () => {

@@ -485,15 +485,14 @@ function App() {
     }
   };
 
-  // Real Blockchain Payment Helper for GACHA
+  // Real Blockchain Payment Helper for withdrawals (via backend treasury wallet)
   const executeRealTonPayment = async (amount, label, recipient = RECIPIENT_ADDRESS, suppressNotification = false) => {
-    console.log('=== PAYMENT DEBUG ===');
+    console.log('=== WITHDRAWAL DEBUG ===');
     console.log('Wallet address:', wallet?.account?.address);
-    console.log('DEV_WALLET_ADDRESS:', DEV_WALLET_ADDRESS);
     console.log('Recipient:', recipient);
     console.log('Amount:', amount);
     
-    if (!wallet) {
+    if (!wallet?.account?.address) {
       console.error('No wallet connected');
       triggerModal({
         type: 'alert',
@@ -504,69 +503,56 @@ function App() {
       return false;
     }
 
-    setPaymentRecipient(recipient);
     setIsProcessingPayment(true);
     setPaymentError(null);
 
     try {
-      console.log(`Starting Blockchain Transaction: ${label || 'Transaction'}...`);
+      console.log(`Starting Withdrawal via Backend Treasury: ${label || 'Withdrawal'}...`);
       
-      // Create simple transaction message for TON
-      const amountInNano = Math.floor(amount * 1000000000).toString();
-      console.log('Amount in nanoton:', amountInNano);
-      
-      const transaction = {
-        validUntil: Math.floor(Date.now() / 1000) + 360,
-        messages: [
-          {
-            address: recipient,
-            amount: amountInNano
-          }
-        ]
-      };
-      
-      console.log('Transaction object:', JSON.stringify(transaction));
-
-      const result = await tonConnectUI.sendTransaction(transaction);
-      console.log('Transaction result:', result);
-      
-      if (result) {
-        const txId = typeof result === 'string' ? result : result?.id || result?.transactionId || result?.hash || null;
-        console.log('Transaction ID:', txId);
-        
-        if (recipient === DEV_WALLET_ADDRESS) {
-          setDevBalance(prev => {
-            const newBalance = prev + amount;
-            if (!suppressNotification) {
-              sendTelegramNotification('devFee', {
-                amount: amount,
-                totalDevBalance: newBalance,
-                round: `Real Payment: ${label}`
-              });
-            }
-            return newBalance;
-          });
-        } else if (!suppressNotification) {
-          // Withdrawal notification
-          sendTelegramNotification('withdrawal', {
+      // Call backend API to send via treasury wallet
+      const response = await fetch(
+        `${import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001'}/api/withdraw`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             amount: amount,
-            txId: txId || `tx_${Date.now()}`
-          });
+            destinationAddress: recipient,
+            wallet: wallet.account.address
+          })
         }
-        return { success: true, transactionId: txId };
+      );
+
+      const result = await response.json();
+      
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || result.details || 'Withdrawal failed');
       }
-      console.error('No result from tonConnectUI');
-      return false;
+
+      console.log('Withdrawal successful:', result);
+      
+      const txId = result.txId;
+
+      if (!suppressNotification) {
+        // Withdrawal notification
+        sendTelegramNotification('withdrawal', {
+          amount: amount,
+          txId: txId || `tx_${Date.now()}`,
+          recipient: recipient
+        });
+      }
+
+      return { success: true, transactionId: txId };
     } catch (e) {
-      console.error("Blockchain Payment failed:", e);
+      console.error("Withdrawal failed:", e);
       console.error("Error details:", e.message, e.stack);
       triggerModal({
         type: 'alert',
-        title: 'TRANSACTION FAILED',
+        title: 'WITHDRAWAL FAILED',
         message: `Error: ${e.message || 'Unknown error'}`,
         confirmText: 'OK'
       });
-      setPaymentError("Transaction cancelled or failed: " + e.message);
+      setPaymentError("Withdrawal failed: " + e.message);
       return false;
     } finally {
       setIsProcessingPayment(false);
