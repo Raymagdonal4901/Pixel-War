@@ -508,17 +508,25 @@ function App() {
       
       if (result) {
         const txId = typeof result === 'string' ? result : result?.id || result?.transactionId || result?.hash || null;
-        setDevBalance(prev => {
-          const newBalance = recipient === DEV_WALLET_ADDRESS ? prev + amount : prev - amount;
-          if (!suppressNotification) {
-            sendTelegramNotification('devFee', {
-              amount: amount,
-              totalDevBalance: newBalance,
-              round: recipient === DEV_WALLET_ADDRESS ? `Real Payment: ${label}` : `Withdrawal: ${label}`
-            });
-          }
-          return newBalance;
-        });
+        if (recipient === DEV_WALLET_ADDRESS) {
+          setDevBalance(prev => {
+            const newBalance = prev + amount;
+            if (!suppressNotification) {
+              sendTelegramNotification('devFee', {
+                amount: amount,
+                totalDevBalance: newBalance,
+                round: `Real Payment: ${label}`
+              });
+            }
+            return newBalance;
+          });
+        } else if (!suppressNotification) {
+          sendTelegramNotification('devFee', {
+            amount: amount,
+            totalDevBalance: devBalance,
+            round: `Withdrawal: ${label}`
+          });
+        }
         return { success: true, transactionId: txId };
       }
       return false;
@@ -634,21 +642,21 @@ function App() {
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     if (isNaN(amount) || amount <= 0) return;
+    if (amount > tonBalance) {
+      triggerModal({
+        type: 'alert',
+        title: 'INSUFFICIENT TON',
+        message: `Your wallet only has ${tonBalance.toFixed(2)} TON available.`,
+        confirmText: 'OK'
+      });
+      return;
+    }
     if (!withdrawAddress) return;
     if (!wallet) {
       triggerModal({
         type: 'alert',
         title: t('modal.warning'),
-        message: 'Please connect the dev wallet first.',
-        confirmText: t('modal.understood')
-      });
-      return;
-    }
-    if (wallet?.account?.address !== DEV_WALLET_ADDRESS) {
-      triggerModal({
-        type: 'alert',
-        title: t('modal.warning'),
-        message: `Please connect the dev wallet: ${DEV_WALLET_ADDRESS}`,
+        message: 'Please connect your wallet first.',
         confirmText: t('modal.understood')
       });
       return;
@@ -1370,7 +1378,6 @@ function App() {
 
             <div className="relative z-10 w-full flex flex-col flex-1">
               <h2 className="text-base text-center py-2 mb-1 tracking-widest text-[#f1c40f] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] uppercase">{t('withdraw.title')}</h2>
-              <p className="text-[8px] text-gray-400 text-center uppercase tracking-[0.15em] mb-2">Connect with dev wallet: {DEV_WALLET_ADDRESS}</p>
               
               <div className="flex flex-col gap-3 px-1 pb-4">
                 
@@ -1378,7 +1385,7 @@ function App() {
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-end px-1">
                     <span className="text-[9px] text-gray-400 font-bold uppercase">{t('withdraw.amountLabel')}</span>
-                    <span className="text-[7px] text-[#2ecc71] font-bold">{t('withdraw.max')}: {devBalance.toFixed(2)} TON</span>
+                    <span className="text-[7px] text-[#2ecc71] font-bold">{t('withdraw.max')}: {tonBalance.toFixed(2)} TON</span>
                   </div>
                   <div className="flex items-stretch h-12 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all">
                     <input 
@@ -1388,7 +1395,7 @@ function App() {
                       placeholder="0.00"
                       className="flex-1 bg-transparent border-none text-white px-3 text-right font-mono text-base outline-none placeholder:text-gray-800"
                     />
-                    <button onClick={() => setWithdrawAmount(devBalance.toString())} className="h-full px-3 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
+                    <button onClick={() => setWithdrawAmount(tonBalance.toString())} className="h-full px-3 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
                       <IconTon className="w-5 h-5 mx-auto" />
                     </button>
                   </div>
