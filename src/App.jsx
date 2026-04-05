@@ -207,6 +207,12 @@ function App() {
       console.warn('[Mining Error]', data.message);
     });
 
+    // Withdrawal events
+    socketRef.current.on('withdrawal:success', (data) => {
+      setGameBalance(data.newBalance);
+      console.log('[Withdrawal] Balance updated from server:', data.newBalance);
+    });
+
     socketRef.current.on('mission:rewardClaimed', (result) => {
       triggerModal({
         type: 'alert',
@@ -690,8 +696,6 @@ function App() {
       return;
     }
 
-    // Deduct from V-TON balance only after successful on-chain payment
-    setGameBalance(prev => prev - amount);
     setWithdrawAmount('');
     setWithdrawAddress('');
 

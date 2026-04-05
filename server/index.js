@@ -715,6 +715,20 @@ app.post('/api/withdraw', async (req, res) => {
 
       console.log(`[Withdrawal] ✅ Recorded: ${amount} TON to ${destinationAddress} (ref: ${txId})`);
 
+      // Notify the player's socket about the balance update
+      const playerSocket = Array.from(onlinePlayers.entries()).find(
+        ([sid, info]) => info.fullWallet === wallet
+      );
+      if (playerSocket) {
+        const [socketId] = playerSocket;
+        io.to(socketId).emit('withdrawal:success', {
+          newBalance: player.gameBalance,
+          amount,
+          txId,
+          destination: destinationAddress
+        });
+      }
+
       // TODO: Send actual TON via treasury wallet
       // This could be done via:
       // - TonHub API (if you have an account)
@@ -727,6 +741,7 @@ app.post('/api/withdraw', async (req, res) => {
         txId,
         amount,
         destination: destinationAddress,
+        newBalance: player.gameBalance,
         message: 'Withdrawal recorded. Please allow 1-5 minutes for processing.'
       });
 
