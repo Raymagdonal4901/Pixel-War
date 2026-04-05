@@ -90,12 +90,17 @@ export function useMining(userHeroes, socket, walletAddress) {
     const handleStateSync = (serverState) => {
       if (!serverState || !serverState.zones) return;
 
-      setMiningState(prev => ({
-        ...prev,
-        ...serverState,
-        lastUpdated: Date.now(),
-        serverSynced: true
-      }));
+      setMiningState(prev => {
+        // Omit currentBossIndex from serverState as client manages navigation
+        const { currentBossIndex: _unused, ...restServerState } = serverState;
+        
+        return {
+          ...prev,
+          ...restServerState,
+          lastUpdated: Date.now(),
+          serverSynced: true
+        };
+      });
       lastSyncRef.current = Date.now();
     };
 
