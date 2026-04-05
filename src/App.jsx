@@ -154,7 +154,7 @@ function App() {
   const [selectedHero, setSelectedHero] = useState(null);
   const [showCapacityWarning, setShowCapacityWarning] = useState(false);
   const [gachaAnim, setGachaAnim] = useState(null); // 'falling', 'shaking', 'burst', 'revealed'
-  const { buyTier, legendaryPity } = useGacha();
+  const { buyTier } = useGacha();
   const { userHeroes, heroCount, maxCapacity, canAdd, addHeroes, rarityCounts, repairHeroes, upgradeHero, mergeHeroes, getDuplicates, getSameRarityHeroes } = useHeroRoster();
   const miningData = useMining(userHeroes, socketRef.current);
   const [showRepairModal, setShowRepairModal] = useState(false);
@@ -572,13 +572,13 @@ function App() {
 
   const handleWithdrawSimulation = () => {
     const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount <= 0 || amount > gameBalance) return;
+    if (isNaN(amount) || amount <= 0 || amount > devBalance) return;
     
     const fees = amount * 0.1;
     const net = amount - fees;
-    const newBalance = gameBalance - amount;
+    const newBalance = devBalance - amount;
     
-    setGameBalance(newBalance);
+    setDevBalance(newBalance);
     const txData = {
       type: 'withdrawal',
       amount: amount,
@@ -807,7 +807,7 @@ function App() {
       </header>
 
       {/* Main Scrollable Content */}
-      <main className="flex-1 flex flex-col z-10 p-4 pb-24 overflow-y-auto">
+      <main className="flex-1 flex flex-col z-10 p-2 pb-20 overflow-y-auto no-scrollbar">
         
         {activeTab === 'raid' && (
           <div className="flex flex-col flex-1 relative min-h-full">
@@ -819,27 +819,27 @@ function App() {
             
             <div className="relative z-10 w-full flex flex-col flex-1">
               {raidView === 'list' ? (
-                <section className="flex flex-col items-center mb-4 w-full">
-                  <div className="text-center mb-4 w-full">
-                    <h2 className="text-yellow-400 text-lg font-bold drop-shadow-md animate-pulse">{t('raid.bossTitle')}</h2>
-                    <p className="text-gray-400 text-[8px] mt-1">{t('raid.selectBoss')}</p>
+                <section className="flex flex-col items-center mb-2 w-full">
+                  <div className="text-center mb-2 w-full">
+                    <h2 className="text-yellow-400 text-base font-bold drop-shadow-md animate-pulse uppercase tracking-wider">{t('raid.bossTitle')}</h2>
+                    <p className="text-gray-400 text-[7px] mt-0.5 uppercase">{t('raid.selectBoss')}</p>
                   </div>
                   
-                  <div className="flex flex-col gap-3 w-full px-2">
+                  <div className="flex flex-col gap-2 w-full px-1">
                     {BOSSES.map((boss, idx) => {
                       // Simple unlock logic: 0 is always unlocked
-                      const isUnlocked = idx === 0 || heroCount >= (idx * 5); // Example: 5 heroes per tier
+                      const isUnlocked = idx === 0 || (userHeroes?.length || 0) >= (idx * 5);
 
                       return (
                         <div 
                           key={boss.id} 
-                          className={`relative w-full pixel-border p-3 transition-all ${
+                          className={`relative w-full pixel-border p-2 transition-all ${
                             isUnlocked 
-                              ? 'opacity-100 cursor-pointer hover:scale-[1.02]' 
+                              ? 'opacity-100 cursor-pointer hover:bg-white/5 active:scale-[0.98]' 
                               : 'opacity-50 grayscale cursor-not-allowed'
                           }`}
                           style={{ 
-                            backgroundColor: `${boss.color}15`, 
+                            backgroundColor: `${boss.color}10`, 
                             borderColor: isUnlocked ? boss.color : '#333' 
                           }}
                           onClick={() => {
@@ -850,25 +850,35 @@ function App() {
                           }}
                         >
                           {!isUnlocked && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10 transition-opacity">
-                              <span className="text-3xl drop-shadow-md">🔒</span>
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
+                              <span className="text-2xl drop-shadow-md">🔒</span>
                             </div>
                           )}
 
                           <div className="flex gap-3 items-center">
-                            <div className="w-16 h-20 bg-black/40 pixel-border-sm flex-shrink-0 relative overflow-hidden" style={{ borderColor: boss.color }}>
+                            <div className="w-14 h-16 bg-black/40 pixel-border-sm flex-shrink-0 relative overflow-hidden" style={{ borderColor: boss.color }}>
                               <img src={boss.image} alt={boss.name} className="w-full h-full object-cover image-pixelated" />
-                              <div className="absolute top-0 right-0 bg-black/70 text-[6px] px-1 text-white">T{boss.tier}</div>
+                              <div className="absolute top-0 right-0 bg-black/80 text-[5px] px-1 text-white font-bold">T{boss.tier}</div>
                             </div>
 
                             <div className="flex-1 flex flex-col justify-center">
-                              <h3 className="text-sm font-bold" style={{ color: boss.color }}>{boss.name}</h3>
-                              <div className="bg-black/50 p-1.5 mt-1 pixel-border-sm text-[8px]">
-                                <p className="text-gray-300">{t('raid.bonus')}: <span className="text-green-400 font-bold">{boss.bonusLabel}</span></p>
+                              <h3 className="text-[11px] font-black uppercase tracking-wider" style={{ color: boss.color }}>{boss.name}</h3>
+                              <div className="flex flex-col gap-1 mt-1">
+                                <div className="bg-black/50 px-1.5 py-1 border border-white/5 text-[7px] inline-block w-fit">
+                                  <p className="text-gray-400">
+                                    {t('raid.bonus')}: <span className="text-yellow-400 font-black">{boss.baseHp.toLocaleString()}</span>
+                                  </p>
+                                </div>
+                                <p className="text-[6px] text-yellow-500/80 font-bold uppercase tracking-tight italic">
+                                  * {t('raid.commonOnly', { 
+                                      rarity: (['Common', 'Rare', 'SR', 'Epic', 'Legendary'][boss.tier - 1] || 'Common').toUpperCase(), 
+                                      max: 10 
+                                    })}
+                                </p>
                               </div>
-                              <div className="text-[7px] text-gray-500 mt-2 px-1">
+                              <p className="text-[5px] text-gray-500 mt-2 uppercase tracking-widest opacity-50">
                                 {t('raid.selectToBattle')}
-                              </div>
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -879,23 +889,23 @@ function App() {
               ) : (
                 <>
                   {/* Boss Info Panel */}
-                  <section className="flex flex-col items-center mb-2 px-2">
-                    <div className="w-full flex justify-between items-center mb-4">
+                  <section className="flex flex-col items-center mb-1 px-1">
+                    <div className="w-full flex justify-between items-center mb-2">
                       <button 
                         onClick={() => setRaidView('list')} 
-                        className="py-1 px-3 bg-black/40 text-gray-400 hover:text-white hover:bg-black/60 pixel-border-sm text-[7px] transition-colors"
+                        className="py-1 px-2 bg-black/40 text-gray-500 hover:text-white hover:bg-black/60 pixel-border-sm text-[6px] transition-colors font-bold"
                       >
                         ← {t('raid.changeBoss')}
                       </button>
                       <div className="text-right">
-                        <div className="text-[10px] font-bold" style={{ color: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color }}>
+                        <div className="text-[9px] font-black uppercase tracking-wider" style={{ color: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color }}>
                           {BOSSES[miningData?.miningState?.currentBossIndex || 0]?.name}
                         </div>
-                        <div className="text-[6px] text-gray-500 uppercase tracking-tighter">Current Target</div>
+                        <div className="text-[5px] text-gray-600 font-bold uppercase tracking-tighter">Current Target</div>
                       </div>
                     </div>
 
-                    <div className="relative w-40 h-48 mb-4">
+                    <div className="relative w-36 h-44 mb-2">
                       <div 
                         className="w-full h-full pixel-border flex items-center justify-center overflow-hidden relative bg-black/20 animate-float"
                         style={{ borderColor: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color }}
@@ -907,22 +917,22 @@ function App() {
                         />
                         {(miningData?.miningState?.zones?.[miningData?.miningState?.currentBossIndex || 0]?.hp ?? 1) <= 0 && (
                           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
-                            <span className="text-white text-[8px] font-black tracking-widest bg-emerald-600 px-3 py-1 animate-bounce">DEFEATED!</span>
+                            <span className="text-white text-[7px] font-black tracking-[0.2em] bg-emerald-600 px-3 py-1.5 animate-bounce uppercase">DEFEATED!</span>
                           </div>
                         )}
                       </div>
                     </div>
 
                     {/* Boss HP Bar */}
-                    <div className="w-full max-w-xs bg-gray-900 h-6 pixel-border-sm relative overflow-hidden">
+                    <div className="w-full max-w-[280px] bg-gray-900/80 h-4 border border-white/10 relative overflow-hidden rounded-sm">
                       <div 
-                        className="h-full transition-all duration-300 shadow-[0_0_10px_rgba(255,0,0,0.5)]" 
+                        className="h-full transition-all duration-300 shadow-[0_0_10px_rgba(255,0,0,0.3)]" 
                         style={{ 
                           width: `${((miningData?.miningState?.zones?.[miningData?.miningState?.currentBossIndex || 0]?.hp ?? 0) / (BOSSES[miningData?.miningState?.currentBossIndex || 0]?.baseHp || 1)) * 100}%`, 
                           backgroundColor: BOSSES[miningData?.miningState?.currentBossIndex || 0]?.color 
                         }}
                       ></div>
-                      <div className="absolute inset-0 flex items-center justify-center text-white text-[8px] font-black drop-shadow-md">
+                      <div className="absolute inset-0 flex items-center justify-center text-white text-[7px] font-black drop-shadow-md tracking-widest">
                         {Math.floor(miningData?.miningState?.zones?.[miningData?.miningState?.currentBossIndex || 0]?.hp ?? 0).toLocaleString()} / {(BOSSES[miningData?.miningState?.currentBossIndex || 0]?.baseHp || 0).toLocaleString()} HP
                       </div>
                     </div>
@@ -953,106 +963,92 @@ function App() {
 
         {/* GACHA TAB */}
         {activeTab === 'gacha' && (
-          <section className="flex flex-col items-center flex-1 pt-0 pb-4 animate-in fade-in duration-300 relative min-h-full overflow-hidden">
+          <section className="flex flex-col items-center flex-1 pt-0 pb-2 animate-in fade-in duration-300 relative min-h-full overflow-hidden">
             <div 
               className="absolute inset-0 z-0 opacity-5 pointer-events-none bg-center bg-no-repeat bg-cover image-pixelated"
               style={{ backgroundImage: "url('/gacha_bg.jpg')" }}
             ></div>
             
             <div className="relative z-10 w-full flex flex-col items-center flex-1 lg:max-w-md mx-auto">
-              {/* Pity Bar at the very TOP edge */}
-              <div className="w-full bg-black/60 border-b-2 border-yellow-500/50 py-1.5 px-3 flex justify-center items-center gap-2 mb-2">
-                <span className="text-[var(--color-legendary)] text-[7px] font-pixel tracking-tighter">
-                  {t('gacha.pityToLeg')}
-                </span>
-                <span className="text-white text-[8px] font-pixel font-bold">
-                  {legendaryPity} / 50
-                </span>
-                <div className="flex-1 h-1 bg-gray-800 ml-2 pixel-border-sm overflow-hidden min-w-[60px]">
-                  <div 
-                    className="h-full bg-yellow-500 shadow-[0_0_8px_rgba(241,196,15,0.8)] transition-all duration-500" 
-                    style={{ width: `${(legendaryPity / 50) * 100}%` }}
-                  ></div>
-                </div>
+              <div className="w-full flex justify-center items-center mb-1 px-3 mt-1">
+                  <h2 className="text-[9px] text-[var(--color-pixel)] drop-shadow-md font-pixel tracking-widest uppercase">{t('gacha.portalTitle')}</h2>
               </div>
 
-              <div className="w-full flex justify-between items-center mb-2 px-3">
-                  <h2 className="text-[10px] text-[var(--color-pixel)] drop-shadow-md font-pixel tracking-widest">{t('gacha.summon')}</h2>
-                  <button onClick={() => setShowRates(true)} className="pixel-button bg-gray-800/80 hover:bg-gray-700 text-[#f1c40f] border border-[#f1c40f]/50 px-2 py-1 text-[6px] font-pixel flex items-center gap-1 shadow-lg">
-                    <span>(i)</span> {t('gacha.rates')}
-                  </button>
-              </div>
-
-
-
-              {/* Featured Drops Area (Fixed 2-Line Layout with ATK, YIELD & PULSE) */}
-              <div className="w-full mb-4 pt-4 pb-1 px-4">
-                 <div className="flex flex-wrap justify-center gap-x-2 gap-y-4 px-1">
-                   {PREVIEW_DATA.map((c, i) => (
-                      <div key={i} className="flex flex-col items-center relative w-[31%]" style={{ color: c.color }}>
-                         <div className="w-full relative flex items-center justify-center mb-1.5 h-12">
-                           {/* Pulsing Glow Background */}
-                           <div 
-                              className="absolute inset-0 rounded-full blur-xl opacity-40 anim-pulse-glow pointer-events-none"
-                              style={{ 
-                                background: `radial-gradient(circle, ${c.color} 0%, transparent 70%)`,
-                              }}
-                           ></div>
-                           
-                           {/* Robot Sprite */}
-                           <div className="relative z-10 w-10 h-10" style={{ filter: `drop-shadow(0 0 10px ${c.color})` }}>
-                             <Sprite char={c} />
-                           </div>
-                         </div>
-                         <div className="flex flex-col items-center gap-0.5 w-full">
-                            <div className="text-[7px] truncate w-full text-center font-black tracking-tighter uppercase font-pixel"
-                                 style={{ textShadow: '1px 1px 0 #000, -1px -1px 0 #000' }}>
-                              {c.rarity === 'SR' ? 'SUPER RARE' : c.rarity.toUpperCase()}
+              {/* 3+2 Robot Previews with Stats */}
+              <div className="w-full flex flex-col gap-4 mt-4 px-2">
+                {[
+                  ['Common', 'Rare', 'SR'],
+                  ['Epic', 'Legendary']
+                ].map((row, rIdx) => (
+                  <div key={rIdx} className="flex justify-center gap-4">
+                    {row.map((tier) => {
+                      const hero = PREVIEW_DATA.find(h => h.rarity === tier) || PREVIEW_DATA[0];
+                      const colorMap = { Common: '#bdc3c7', Rare: '#3498db', SR: '#2ecc71', Epic: '#9b59b6', Legendary: '#f1c40f' };
+                      const color = colorMap[tier];
+                      const dailyYield = (hero.atk * BASE_RATE_PER_ATK).toFixed(2);
+                      
+                      return (
+                        <div key={tier} className="flex flex-col items-center w-[90px]">
+                          <div className="relative w-16 h-16 flex items-center justify-center mb-1">
+                            <div className="absolute inset-0 blur-xl opacity-20 rounded-full" style={{ backgroundColor: color }}></div>
+                            <div className="w-14 h-14 relative z-10 animate-float" style={{ animationDelay: `${rIdx * 0.2}s` }}>
+                              <Sprite char={hero} />
                             </div>
-                            <div className="flex flex-col items-center w-full bg-black/40 border border-white/10 py-1 rounded-sm gap-0.5">
-                               <span className="text-[7px] text-white/90 font-mono font-bold tracking-tight">
-                                 ATK: {c.atk}
-                               </span>
-                               <span className="text-[8px] text-yellow-400 font-black tracking-tight font-mono">
-                                 {(c.atk * BASE_RATE_PER_ATK).toFixed(2)} TON/D
-                               </span>
-                            </div>
-                         </div>
-                      </div>
-                    ))}
-                 </div>
+                          </div>
+                          <div className="text-[8px] font-black tracking-widest mb-1 shadow-sm uppercase" style={{ color: color }}>
+                            {tier === 'SR' ? 'SUPER RARE' : tier.toUpperCase()}
+                          </div>
+                          <div className="bg-[#050505] border border-gray-800 p-1.5 w-full flex flex-col items-center gap-0.5 rounded-sm shadow-lg">
+                            <div className="text-white text-[7px] font-bold tracking-tighter uppercase leading-none">ATK: {hero.atk}</div>
+                            <div className="text-yellow-400 text-[7px] font-mono font-bold leading-none">{dailyYield} TON/D</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
 
-              {/* Tier Purchase Interactive Icons */}
-              <div className="w-full flex justify-center flex-wrap gap-x-2 gap-y-4 px-2 mt-6 pb-2">
-                 {['Common', 'Rare', 'SR', 'Epic', 'Legendary'].map((tier) => {
-                   const cost = TIER_PRICING[tier];
-                   const colorMap = { Common: '#bdc3c7', Rare: '#3498db', SR: '#2ecc71', Epic: '#9b59b6', Legendary: '#f1c40f' };
-                   const color = colorMap[tier];
-                   
-                   return (
-                     <button 
-                       key={tier}
-                       onClick={() => handleBuyTier(tier)}
-                       disabled={isPulling}
-                       className={`flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95 w-[30%] ${isPulling ? 'opacity-50' : ''}`}
-                     >
-                       <div className="relative">
-                         <img src="/gacha_icon.png" alt={`Buy ${tier}`} className="w-14 h-14 object-contain image-pixelated animate-float drop-shadow-md" />
-                         <div 
-                           className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-white text-[6px] px-1.5 py-0.5 border font-black uppercase text-nowrap"
-                           style={{ backgroundColor: color, borderColor: 'white', textShadow: '1px 1px 0 #000' }}
-                         >
-                           {tier === 'SR' ? 'SUPER RARE' : tier}
-                         </div>
-                       </div>
-                       <div className="flex items-center gap-1.5 mt-2 bg-black/60 px-2 py-1 pixel-border-sm min-w-[50px] justify-center" style={{ borderColor: color }}>
-                         <img src="/ton_coin.png" alt="TON" className="w-4 h-4 object-contain" />
-                         <span className="text-white text-xs font-bold leading-none">{cost}</span>
-                       </div>
-                     </button>
-                   );
-                 })}
+              {/* 3+2 Tier Purchase Icons */}
+              <div className="w-full flex flex-col gap-6 mt-8 pb-4">
+                {[
+                  ['Common', 'Rare', 'SR'],
+                  ['Epic', 'Legendary']
+                ].map((row, rIdx) => (
+                  <div key={rIdx} className="flex justify-center gap-6">
+                    {row.map((tier) => {
+                      const cost = TIER_PRICING[tier];
+                      const colorMap = { Common: '#bdc3c7', Rare: '#3498db', SR: '#2ecc71', Epic: '#9b59b6', Legendary: '#f1c40f' };
+                      const color = colorMap[tier];
+                      
+                      return (
+                        <button 
+                          key={tier}
+                          onClick={() => handleBuyTier(tier)}
+                          disabled={isPulling}
+                          className={`flex flex-col items-center justify-center transition-all active:scale-90 ${isPulling ? 'opacity-50' : 'hover:scale-110'}`}
+                        >
+                          {/* Gacha Machine Icon */}
+                          <div className="relative mb-1">
+                            <img src="/gacha_icon.png" alt={tier} className="w-12 h-12 object-contain image-pixelated drop-shadow-lg" />
+                            <div 
+                              className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-white text-[6px] px-1.5 py-0.5 border-2 font-black uppercase text-nowrap leading-none shadow-md"
+                              style={{ backgroundColor: color, borderColor: 'white' }}
+                            >
+                              {tier === 'SR' ? 'SUPER RARE' : tier.toUpperCase()}
+                            </div>
+                          </div>
+                          
+                          {/* Price Button Box */}
+                          <div className="mt-3 bg-black border-2 px-3 py-1 flex items-center justify-center gap-1.5 shadow-xl min-w-[60px]" style={{ borderColor: color }}>
+                             <IconTon className="w-3 h-3" />
+                             <span className="text-white text-[12px] font-black leading-none">{cost}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -1144,7 +1140,7 @@ function App() {
             </div>
 
             {/* Rarity Filter Tabs */}
-            <div className="flex gap-1 mb-3 overflow-x-auto pb-1">
+            <div className="flex gap-1 mb-2 overflow-x-auto no-scrollbar">
               {[
                 { key: 'ALL', label: 'ALL', color: '#f1c40f', count: heroCount },
                 { key: 'Legendary', label: 'LEG', color: '#f1c40f', count: rarityCounts.Legendary },
@@ -1156,15 +1152,13 @@ function App() {
                 <button
                   key={f.key}
                   onClick={() => setHeroFilter(f.key)}
-                  className={`filter-tab flex-shrink-0 px-2 py-1.5 text-[7px] pixel-border-sm flex items-center gap-1 ${heroFilter === f.key ? 'active' : ''}`}
+                  className={`flex-shrink-0 px-2 py-1 text-[7px] border rounded transition-all flex items-center gap-1 ${heroFilter === f.key ? 'bg-white/10 border-white text-white' : 'border-gray-800 text-gray-500'}`}
                   style={{ 
-                    backgroundColor: heroFilter === f.key ? f.color + '33' : 'rgba(0,0,0,0.4)',
-                    borderColor: heroFilter === f.key ? f.color : 'var(--color-game-border)',
-                    color: heroFilter === f.key ? f.color : '#888'
+                    borderColor: heroFilter === f.key ? f.color : 'rgba(255,255,255,0.1)',
                   }}
                 >
                   {f.label}
-                  <span className="bg-black/50 px-1 rounded text-[6px]" style={{ color: f.color }}>{f.count}</span>
+                  <span className="bg-black/50 px-1 rounded text-[5px] font-bold" style={{ color: f.color }}>{f.count}</span>
                 </button>
               ))}
             </div>
@@ -1184,7 +1178,7 @@ function App() {
                 )}
               </div>
             ) : (
-              <div className="flex flex-col gap-6">
+              <div className="flex flex-col gap-4">
                 {['Legendary', 'Epic', 'SR', 'Rare', 'Common'].map((rarity) => {
                   if (heroFilter !== 'ALL' && heroFilter !== rarity) return null;
                   
@@ -1195,16 +1189,16 @@ function App() {
                   const rarityLabel = rarity === 'SR' ? 'SUPER RARE' : rarity.toUpperCase();
 
                   return (
-                    <div key={rarity} className="flex flex-col gap-3">
+                    <div key={rarity} className="flex flex-col gap-2">
                       {/* Rarity Header */}
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div 
-                          className="px-3 py-1 text-[8px] font-bold tracking-widest border-2 pixel-border-sm min-w-[100px] text-center"
-                          style={{ color: rarityColor, borderColor: rarityColor, backgroundColor: rarityColor + '15' }}
+                          className="px-2 py-0.5 text-[7px] font-black tracking-widest border border-white/10 min-w-[80px] text-center uppercase"
+                          style={{ color: rarityColor, backgroundColor: rarityColor + '10' }}
                         >
                           {rarityLabel} ({groupHeroes.length})
                         </div>
-                        <div className="h-px flex-1 bg-gradient-to-r from-gray-700 via-gray-800 to-transparent"></div>
+                        <div className="h-px flex-1 bg-gradient-to-r from-gray-800 to-transparent"></div>
                       </div>
 
                       {/* Rarity Grid */}
@@ -1312,105 +1306,98 @@ function App() {
             ></div>
 
             <div className="relative z-10 w-full flex flex-col flex-1">
-              <h2 className="text-xl text-center py-4 mb-2 tracking-widest text-[#f1c40f] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">{t('withdraw.title')}</h2>
+              <h2 className="text-base text-center py-2 mb-1 tracking-widest text-[#f1c40f] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] uppercase">{t('withdraw.title')}</h2>
               
-              <div className="flex flex-col gap-6 px-1 pb-10">
+              <div className="flex flex-col gap-3 px-1 pb-4">
                 
                 {/* Input 1: Amount */}
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-end px-1">
-                    <span className="text-[10px] text-gray-300 font-bold">{t('withdraw.amountLabel')}</span>
-                    <span className="text-[8px] text-[#2ecc71]">{t('withdraw.max')}: {gameBalance.toFixed(2)} TON</span>
+                    <span className="text-[9px] text-gray-400 font-bold uppercase">{t('withdraw.amountLabel')}</span>
+                    <span className="text-[7px] text-[#2ecc71] font-bold">{t('withdraw.max')}: {devBalance.toFixed(2)} TON</span>
                   </div>
-                  <div className="flex items-stretch h-14 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
+                  <div className="flex items-stretch h-12 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all">
                     <input 
                       type="text"
                       value={withdrawAmount}
                       onChange={handleWithdrawAmountChange}
                       placeholder="0.00"
-                      className="flex-1 bg-transparent border-none text-white px-4 text-right font-mono text-xl outline-none placeholder:text-gray-700"
+                      className="flex-1 bg-transparent border-none text-white px-3 text-right font-mono text-base outline-none placeholder:text-gray-800"
                     />
-                    <button onClick={() => setWithdrawAmount(gameBalance.toString())} className="h-full px-4 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
-                      <span className="text-2xl drop-shadow-[0_0_5px_#2ecc71]">💰</span>
+                    <button onClick={() => setWithdrawAmount(devBalance.toString())} className="h-full px-3 bg-[#1a1c23] hover:bg-[#2c303f] border-l-2 border-[#111] flex items-center justify-center transition-colors">
+                      <IconTon className="w-5 h-5 mx-auto" />
                     </button>
                   </div>
                 </div>
 
                 {/* Input 2: Address */}
-                <div className="flex flex-col gap-2">
-                  <label className="text-[10px] text-gray-300 px-1 font-bold">{t('withdraw.addressLabel')}</label>
-                  <div className="flex items-stretch h-14 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] text-gray-400 px-1 font-bold uppercase">{t('withdraw.addressLabel')}</label>
+                  <div className="flex items-stretch h-12 bg-black/60 pixel-border border-gray-700 w-full focus-within:border-[#f1c40f] transition-all">
                     <input 
                       type="text"
                       value={withdrawAddress}
                       onChange={(e) => setWithdrawAddress(e.target.value)}
                       placeholder="EQA..."
-                      className="flex-1 bg-transparent border-none text-gray-400 px-4 font-mono text-[9px] outline-none placeholder:text-gray-700"
+                      className="flex-1 bg-transparent border-none text-gray-400 px-3 font-mono text-[8px] outline-none placeholder:text-gray-800"
                     />
                   </div>
                 </div>
 
                 {/* Calculations Box */}
-                <div className="flex justify-center my-1 relative">
-                  <div className="bg-black/40 pixel-border border-[#2a2e3a] w-full p-4 space-y-3 relative overflow-hidden">
-                    {/* Retro lines */}
-                    <div className="absolute top-0 bottom-0 left-0 w-1 bg-[var(--color-game-panel)] opacity-50"></div>
-                     <div className="flex justify-between items-center text-[10px]">
-                       <span className="text-gray-400 font-bold tracking-wide">{t('withdraw.amount')}</span>
-                       <span className="font-mono text-white text-xs">{withdrawAmount || '0.00'}</span>
+                <div className="flex justify-center my-0.5 relative">
+                  <div className="bg-black/40 border border-white/5 w-full p-3 space-y-2 relative overflow-hidden">
+                     <div className="flex justify-between items-center text-[9px]">
+                       <span className="text-gray-500 font-bold uppercase tracking-wide">{t('withdraw.amount')}</span>
+                       <span className="font-mono text-white text-[10px]">{withdrawAmount || '0.00'}</span>
                      </div>
-                     <div className="flex justify-between items-center text-[10px]">
-                       <span className="text-red-400 font-bold tracking-wide">{t('withdraw.fee')}</span>
-                       <span className="font-mono text-red-500 text-xs">-{withdrawAmount ? (withdrawAmount * 0.1).toFixed(2) : '0.00'}</span>
+                     <div className="flex justify-between items-center text-[9px]">
+                       <span className="text-red-500 font-bold uppercase tracking-wide">{t('withdraw.fee')}</span>
+                       <span className="font-mono text-red-500 text-[10px]">-{withdrawAmount ? (withdrawAmount * 0.1).toFixed(2) : '0.00'}</span>
                      </div>
-                     <div className="w-full border-t border-dashed border-[#444] my-2"></div>
-                     <div className="flex justify-between items-center text-[11px] font-black">
-                       <span className="text-[#f1c40f] drop-shadow-sm tracking-wide">{t('withdraw.netAmount')}</span>
-                       <span className="font-mono text-[#f1c40f] text-sm drop-shadow-md">{withdrawAmount ? (withdrawAmount * 0.9).toFixed(2) : '0.00'}</span>
+                     <div className="w-full border-t border-dashed border-white/5 my-1"></div>
+                     <div className="flex justify-between items-center text-[10px] font-black">
+                       <span className="text-[#f1c40f] uppercase tracking-wider">{t('withdraw.netAmount')}</span>
+                       <span className="font-mono text-[#f1c40f] text-xs drop-shadow-md">{withdrawAmount ? (withdrawAmount * 0.9).toFixed(2) : '0.00'}</span>
                      </div>
                   </div>
                 </div>
 
                 {/* Dev Fee Reminder */}
-                <div className="bg-[#13141a] pixel-border border-[#1f2129] flex flex-col relative mt-2 shadow-lg">
-                   <div className="flex items-start gap-4 p-4 pb-2">
-                     <span className="text-3xl opacity-80 drop-shadow-[0_0_5px_rgba(255,255,255,0.2)]">🖥️</span>
-                     <div className="flex flex-col gap-1 pt-1">
-                       <span className="text-[#a0a5b5] text-[10px] font-bold">{t('withdraw.devFeeTitle')}</span>
-                       <span className="text-[#6a7185] text-[7px] leading-relaxed">{t('withdraw.devFeeDesc1')}<br/>{t('withdraw.devFeeDesc2')}</span>
+                <div className="bg-[#13141a]/80 border border-white/5 flex flex-col relative mt-1 shadow-lg">
+                   <div className="flex items-start gap-3 p-3 pb-1.5">
+                     <span className="text-xl opacity-80">🖥️</span>
+                     <div className="flex flex-col pt-0.5">
+                       <span className="text-[#a0a5b5] text-[9px] font-bold uppercase">{t('withdraw.devFeeTitle')}</span>
+                       <span className="text-[#6a7185] text-[6px] leading-[1.3]">{t('withdraw.devFeeDesc1')} {t('withdraw.devFeeDesc2')}</span>
                      </div>
                    </div>
-                   <div className="bg-[#2a0e0e]/80 border-t-2 border-[#ff3344] p-2 mt-2">
-                     <p className="text-[#ff5555] text-[7px] leading-relaxed text-center font-bold tracking-widest drop-shadow-sm">
-                       ⚠ {t('withdraw.warning1')}<br/>{t('withdraw.warning2')} ⚠
+                   <div className="bg-[#2a0e0e]/80 border-t border-[#ff3344]/30 p-1.5 mt-1">
+                     <p className="text-[#ff5555] text-[6px] leading-tight text-center font-bold tracking-widest uppercase">
+                       ⚠ {t('withdraw.warning1')} {t('withdraw.warning2')} ⚠
                      </p>
                    </div>
                 </div>
 
                 {/* Submit Button */}
-                <div className="mt-4 mb-8">
+                <div className="mt-2 mb-4">
                   <button 
                     disabled={!withdrawAmount || !withdrawAddress}
                     onClick={handleWithdrawSimulation}
-                    className="w-full py-4 text-sm font-bold tracking-widest text-[#111] flex justify-center items-center gap-3 transition-all relative overflow-hidden"
+                    className="w-full py-3 text-[11px] font-black tracking-[0.2em] text-[#111] flex justify-center items-center gap-2 transition-all relative overflow-hidden uppercase h-14"
                     style={{
-                       backgroundColor: (!withdrawAmount || !withdrawAddress) ? '#4a4a4a' : '#f1c40f',
-                       border: '4px solid',
+                       backgroundColor: (!withdrawAmount || !withdrawAddress) ? '#333' : '#f1c40f',
+                       border: '2px solid',
                        borderColor: (!withdrawAmount || !withdrawAddress) ? '#222' : '#ffffff',
-                       outline: '3px solid',
-                       outlineColor: (!withdrawAmount || !withdrawAddress) ? '#333' : '#b28e00',
-                       outlineOffset: '-2px',
-                       boxShadow: (!withdrawAmount || !withdrawAddress) ? 'none' : 'inset -2px -6px 0px 0px rgba(0,0,0,0.2)',
-                       filter: (!withdrawAmount || !withdrawAddress) ? 'grayscale(100%)' : 'drop-shadow(0 0 10px rgba(241,196,15,0.3))',
                     }}
                   >
                     {!withdrawAmount || !withdrawAddress ? (
                       <span className="text-gray-600">{t('withdraw.fillAll')}</span>
                     ) : (
-                      <div className="flex items-center gap-4">
-                        <IconTon className="w-10 h-10 drop-shadow-lg" />
-                        <span className="drop-shadow-sm text-lg">{t('withdraw.button')}</span>
-                        <IconTon className="w-10 h-10 drop-shadow-lg" />
+                      <div className="flex items-center gap-3">
+                        <IconTon className="w-6 h-6" />
+                        <span className="drop-shadow-sm">{t('withdraw.button')}</span>
+                        <IconTon className="w-6 h-6" />
                       </div>
                     )}
                   </button>

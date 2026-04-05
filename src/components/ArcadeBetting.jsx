@@ -35,12 +35,6 @@ function generateRobots(is2v2) {
   return { red, blue };
 }
 
-// ═══════════════════════════════════════════
-// Real-time Match Round Calculator
-// Every 1 hour = 1 round
-// Lock betting 5 min before round end (XX:55)
-// Even hours = 1v1, Odd hours = 2v2
-// ═══════════════════════════════════════════
 function getCurrentMatchRound(currentTime = new Date()) {
   const h = currentTime.getHours();
   const startHour = h;
@@ -49,7 +43,6 @@ function getCurrentMatchRound(currentTime = new Date()) {
   const is2v2 = startHour % 2 !== 0;
   const betAmount = is2v2 ? 2 : 1;
 
-  // Lock time = startHour : 55 : 00
   const lockDate = new Date(currentTime);
   lockDate.setHours(startHour, 55, 0, 0);
   let secondsUntilLock = Math.max(0, Math.floor((lockDate - currentTime) / 1000));
@@ -83,9 +76,6 @@ const formatTime = (s) => {
   return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 };
 
-// ═══════════════════════════════════════════
-// Robot Stat Card (inline)
-// ═══════════════════════════════════════════
 const RobotCard = ({ robot, side, isWinner, isLoser }) => {
   const color = side === 'red' ? 'red' : 'blue';
   const borderClass = isWinner ? `neon-border-${color}` : `border-${color}-900/30`;
@@ -101,16 +91,12 @@ const RobotCard = ({ robot, side, isWinner, isLoser }) => {
           <div className="flex justify-between"><span className="text-gray-600">ATK</span><span className="text-white">{robot?.atk}</span></div>
           <div className="flex justify-between"><span className="text-gray-600">DEF</span><span className="text-white">{robot?.def}</span></div>
           <div className="flex justify-between"><span className="text-gray-600">SPD</span><span className="text-white">{robot?.spd}</span></div>
-
         </div>
       </div>
     </div>
   );
 };
 
-// ═══════════════════════════════════════════
-// Upcoming Match Card
-// ═══════════════════════════════════════════
 const UpcomingCard = ({ match }) => (
   <div className="relative rounded-lg overflow-hidden border border-gray-800/60 bg-[#0c0e14]/80 opacity-60" style={{filter:'brightness(0.8)'}}>
     <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-gray-600/30 to-transparent"></div>
@@ -156,15 +142,11 @@ const UpcomingCard = ({ match }) => (
   </div>
 );
 
-// ═══════════════════════════════════════════
-// Main Component
-// ═══════════════════════════════════════════
-const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBalance, setDevBalance, executeRealTonPayment, socket, poolSyncData }) => {
+const ArcadeBetting = ({ pvpQuota, setPvpQuota, setGameBalance, setDevBalance, executeRealTonPayment, socket, poolSyncData }) => {
   const { t } = useT();
   const [gameState, setGameState] = useState('idle');
   const [matchInfo, setMatchInfo] = useState(() => getCurrentMatchRound());
   const [lockTimer, setLockTimer] = useState(LOCK_COUNTDOWN);
-  // Removed unused currentRoundKey
   const [robots, setRobots] = useState({ red: null, blue: null });
   const [selectedBet, setSelectedBet] = useState(null);
   const [winner, setWinner] = useState(null);
@@ -197,7 +179,6 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
     return side > 0 ? (poolAfterFee / side) * matchInfo.betAmount : 0;
   }, [winner, selectedBet, pool, poolAfterFee, matchInfo.betAmount]);
 
-  // Initialize on mount
   useEffect(() => {
     const info = getCurrentMatchRound();
     setRobots(generateRobots(info.is2v2));
@@ -208,20 +189,15 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
     ]);
   }, []);
 
-  // Socket Connection and State Sync
   useEffect(() => {
     if (!socket) return;
-
     const handleSync = (data) => {
       setPool(data.pool);
-      // Sync clock
       setMatchInfo(prev => ({
         ...prev,
         secondsUntilLock: data.status === 'OPEN' ? data.clock : 0,
         status: data.status
       }));
-
-      // Handle locking dynamically from server
       if (data.status === 'LOCKED' && (gameState === 'idle' || gameState === 'betting')) {
         setGameState('locking');
         setLockTimer(data.clock);
@@ -240,22 +216,14 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
         setClaimed(false);
       }
     };
-
     socket.on('poolSync', handleSync);
-    
-    // Also trigger an immediate sync if we already have data
-    if (poolSyncData) {
-      handleSync(poolSyncData);
-    }
-
+    if (poolSyncData) handleSync(poolSyncData);
     return () => socket.off('poolSync', handleSync);
   }, [socket, poolSyncData, gameState]);
 
   const calculateAndDistributeRewards = useCallback(() => {
     const tp = pool.red + pool.blue;
     const df = tp * DEV_FEE;
-    
-    // Distribute Dev Fee tracking (it was already collected real-time via executeRealTonPayment)
     setDevBalance(prev => {
       const newBalance = prev + df;
       sendTelegramNotification('devFee', {
@@ -285,12 +253,6 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
     }, 5000);
   }, [robots.red, robots.blue, pool, roundCounter, calculateAndDistributeRewards]);
 
-  const startNewRound = () => {
-    // Replaced by backend syncing
-    console.log("Rounds are now handled automatically by the server!");
-  };
-
-  // Lock countdown → battle
   useEffect(() => {
     let timer;
     if (gameState === 'locking' && lockTimer > 0) {
@@ -303,33 +265,20 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
 
   const handleBet = async (side) => {
     if (limitReached || selectedBet || (gameState !== 'idle' && gameState !== 'betting')) return;
-    
-    // Real TON Payment
     const success = await executeRealTonPayment(matchInfo.betAmount, `Arcade Bet: ${side.toUpperCase()}`, true);
     if (!success) return;
-
     setSelectedBet(side);
     setPvpQuota(prev => ({ ...prev, count: Math.min(5, (prev?.count || 0) + 1) }));
-    
-    // Emit to server so others see the pool increase
-    if (socket) {
-      socket.emit('placeBet', { side, amount: matchInfo.betAmount });
-    }
-
-    if (gameState === 'idle') {
-      setGameState('betting');
-    }
+    if (socket) socket.emit('placeBet', { side, amount: matchInfo.betAmount });
+    if (gameState === 'idle') setGameState('betting');
   };
 
   const handleClaim = () => { 
-    if (!claimed && selectedBet === winner && reward > 0) {
-      setGameBalance(prev => prev + reward);
-    }
+    if (!claimed && selectedBet === winner && reward > 0) setGameBalance(prev => prev + reward);
     setClaimed(true); 
     setTimeout(() => setShowResultModal(false), 1000); 
   };
 
-  // Stats
   const last5 = matchHistory.slice(-5);
   const redWins = matchHistory.filter(m=>m.winner==='RED').length;
   const totalM = matchHistory.length;
@@ -338,7 +287,6 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
   const highP = matchHistory.reduce((mx,m) => m.payout>mx.payout?m:mx, matchHistory[0]);
   const avgP = totalM>0 ? Math.round(matchHistory.reduce((s,m)=>s+m.totalPool,0)/totalM) : 0;
 
-  // ═══════════ STATS PANEL ═══════════
   if (showStats) {
     return (
       <div className="flex-1 flex flex-col bg-[#0a0c10] border-4 border-gray-800 arcade-crt-container min-h-[400px] overflow-hidden">
@@ -362,14 +310,14 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
             <span className="text-[10px] font-black text-[#2ecc71] block mt-1">{avgP} TON</span>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 z-20 relative">
+        <div className="flex-1 overflow-y-auto p-3 z-20 relative no-scrollbar">
           <div className="grid grid-cols-4 gap-1 mb-2 pb-1 border-b border-green-900/30">
             {['Round','Winner','Payout','Pool'].map(h => <span key={h} className={`text-[6px] text-[#2ecc71] font-black uppercase tracking-wider ${h==='Pool'?'text-right':h==='Round'?'':'text-center'}`}>{h}</span>)}
           </div>
           {[...matchHistory].reverse().map((m,i) => (
-            <div key={i} className={`grid grid-cols-4 gap-1 py-1.5 border-b border-white/5 ${i===0?'bg-white/5':''}`}>
+            <div key={i} className={`grid grid-cols-4 gap-1 py-1 border-b border-white/5 ${i===0?'bg-white/5':''}`}>
               <span className="text-[8px] text-gray-400 font-mono font-bold">#{m.round}</span>
-              <span className="text-center"><span className={`inline-block w-3 h-3 rounded-full ${m.winner==='RED'?'bg-red-500 shadow-[0_0_6px_rgba(255,0,0,0.6)]':'bg-blue-500 shadow-[0_0_6px_rgba(0,100,255,0.6)]'}`}></span></span>
+              <span className="text-center"><span className={`inline-block w-2.5 h-2.5 rounded-full ${m.winner==='RED'?'bg-red-500 shadow-[0_0_6px_rgba(255,0,0,0.6)]':'bg-blue-500 shadow-[0_0_6px_rgba(0,100,255,0.6)]'}`}></span></span>
               <span className={`text-[8px] font-mono font-black text-center ${m.payout>=3?'text-[#f1c40f]':m.payout>=2?'text-[#2ecc71]':'text-gray-400'}`}>{m.payout}x</span>
               <span className="text-[8px] text-gray-400 font-mono text-right">{m.totalPool} TON</span>
             </div>
@@ -378,19 +326,13 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
         <div className="p-3 border-t border-green-900/30 bg-black/60 z-20 relative">
           <div className="flex items-center justify-between">
             <span className="text-[7px] text-[#f1c40f] font-black uppercase tracking-[0.2em]">🔥 Hot Streak</span>
-            <div className="flex gap-1.5">{last5.map((m,i)=>(<div key={i} className={`w-4 h-4 rounded-full border-2 flex items-center justify-center text-[6px] font-black ${m.winner==='RED'?'bg-red-600 border-red-400 text-white shadow-[0_0_6px_rgba(255,0,0,0.5)]':'bg-blue-600 border-blue-400 text-white shadow-[0_0_6px_rgba(0,100,255,0.5)]'}`}>{m.winner==='RED'?'R':'B'}</div>))}</div>
-          </div>
-          <div className="flex gap-1 mt-2">
-            <div className="h-1.5 bg-red-600 transition-all duration-300" style={{width:`${redWR}%`}}></div>
-            <div className="h-1.5 bg-blue-600 transition-all duration-300" style={{width:`${blueWR}%`}}></div>
+            <div className="flex gap-1">{last5.map((m,i)=>(<div key={i} className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center text-[5px] font-black ${m.winner==='RED'?'bg-red-600 border-red-400 text-white shadow-[0_0_6px_rgba(255,0,0,0.5)]':'bg-blue-600 border-blue-400 text-white shadow-[0_0_6px_rgba(0,100,255,0.5)]'}`}>{m.winner==='RED'?'R':'B'}</div>))}</div>
           </div>
         </div>
       </div>
     );
   }
 
-  // ═══════════ MAIN SCHEDULE VIEW ═══════════
-  // Derived state flags
   const isBattle = gameState==='battle';
   const isResult = gameState==='result';
 
@@ -398,267 +340,137 @@ const ArcadeBetting = ({ pvpStats, setPvpStats, pvpQuota, setPvpQuota, setGameBa
     <div className="flex-1 flex flex-col bg-[#080a10] overflow-hidden relative arcade-crt-container">
       <div className="arcade-crt-overlay"></div><div className="arcade-scanline"></div>
 
-      <div className="flex-1 overflow-y-auto relative z-10 px-3 py-4 flex flex-col gap-4 no-scrollbar">
-        {/* ═══ HEADER ═══ */}
+      <div className="flex-1 overflow-y-auto relative z-10 px-3 py-2 flex flex-col gap-2 no-scrollbar">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-[#f1c40f] text-lg font-black italic tracking-[0.15em] drop-shadow-lg">ARCADE ARENA</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[7px] text-gray-500 font-bold uppercase tracking-wider">ROUND #{roundCounter}</span>
-              <span className="text-[7px] text-gray-600">|</span>
-              <span className={`text-[7px] font-bold uppercase tracking-wider ${limitReached?'text-red-500':'text-gray-500'}`}>QUOTA {5-(pvpQuota?.count || 0)}/5</span>
+            <h2 className="text-[#f1c40f] text-base font-black italic tracking-[0.15em] drop-shadow-lg leading-none">ARCADE ARENA</h2>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[6px] text-gray-500 font-bold uppercase tracking-wider">ROUND #{roundCounter}</span>
+              <span className="text-[6px] text-gray-600">|</span>
+              <span className={`text-[6px] font-bold uppercase tracking-wider ${limitReached?'text-red-500':'text-gray-500'}`}>QUOTA {5-(pvpQuota?.count || 0)}/5</span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <button onClick={()=>setShowStats(true)} className="text-[8px] text-[#2ecc71] border border-green-900/40 px-3 py-1.5 bg-black/80 hover:bg-green-950/30 transition-colors uppercase tracking-wider font-bold">
-              📊 STATS
-            </button>
-            {limitReached && (
-              <button onClick={()=>setPvpQuota({count:0,lastResetDayId:-1})} className="text-[6px] text-red-500/80 border border-red-900/30 px-2 py-0.5 bg-black/60 hover:bg-red-950/20 transition-colors uppercase">
-                {t('arcade.devReset')}
-              </button>
-            )}
-          </div>
+          <button onClick={()=>setShowStats(true)} className="text-[7px] text-[#2ecc71] border border-green-900/40 px-2 py-1 bg-black/80 hover:bg-green-950/30 transition-colors uppercase tracking-wider font-bold">📊 STATS</button>
         </div>
 
-        {/* Mini Streak */}
         {matchHistory.length > 0 && (
           <div className="flex items-center gap-1.5">
-            <span className="text-[6px] text-gray-600 uppercase tracking-wider font-bold">{t('arcade.last5')}</span>
-            {last5.map((m,i)=>(<div key={i} className={`w-3 h-3 rounded-full ${m.winner==='RED'?'bg-red-600 shadow-[0_0_4px_rgba(255,0,0,0.4)]':'bg-blue-600 shadow-[0_0_4px_rgba(0,100,255,0.4)]'}`}></div>))}
+            <span className="text-[5px] text-gray-600 uppercase tracking-wider font-bold">{t('arcade.last5')}</span>
+            <div className="flex gap-1">{last5.map((m,i)=>(<div key={i} className={`w-2 h-2 rounded-full ${m.winner==='RED'?'bg-red-600 shadow-[0_0_4px_rgba(255,0,0,0.4)]':'bg-blue-600 shadow-[0_0_4px_rgba(0,100,255,0.4)]'}`}></div>))}</div>
           </div>
         )}
 
-        {/* ═══ LIVE MATCH CARD ═══ */}
-        <div className={`relative rounded-lg overflow-hidden transition-all duration-500 ${
-          isBattle ? 'ring-2 ring-yellow-500/50' : isResult ? (winner==='red'?'ring-2 ring-red-500/50':'ring-2 ring-blue-500/50') : 'ring-2 ring-cyan-500/30'
-        }`} style={{
-          background:'linear-gradient(180deg, #0f1520 0%, #0a0e18 100%)',
-          boxShadow: isBattle ? '0 0 30px rgba(241,196,15,0.15)' : '0 0 30px rgba(0,200,255,0.08)',
-        }}>
-          {/* Neon top glow */}
-          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent"></div>
-
-          {/* Status Badge + Countdown */}
-          <div className="px-4 pt-3 pb-2 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${
-                isBattle?'bg-yellow-400 animate-pulse':isResult?'bg-gray-500':gameState==='locking'?'bg-red-500 animate-pulse':'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(255,0,0,0.6)]'
-              }`}></div>
-              <span className={`text-[10px] font-black uppercase tracking-widest ${
-                isBattle?'text-yellow-400':isResult?'text-gray-400':gameState==='locking'?'text-red-400':'text-red-400'
-              }`}>
+        <div className={`relative rounded-lg overflow-hidden transition-all duration-500 ${isBattle?'ring-2 ring-yellow-500/50':isResult?(winner==='red'?'ring-2 ring-red-500/50':'ring-2 ring-blue-500/50'):'ring-2 ring-cyan-500/30'}`} style={{background:'linear-gradient(180deg, #0f1520 0%, #0a0e18 100%)'}}>
+          <div className="px-3 pt-2 pb-1 flex justify-between items-center">
+            <div className="flex items-center gap-1.5">
+              <div className={`w-1.5 h-1.5 rounded-full ${isBattle?'bg-yellow-400 animate-pulse':isResult?'bg-gray-500':'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(255,0,0,0.6)]'}`}></div>
+              <span className={`text-[8px] font-black uppercase tracking-widest ${isBattle?'text-yellow-400':isResult?'text-gray-400':'text-red-400'}`}>
                 {isBattle?'⚔️ BATTLE':isResult?'🏆 FINISHED':gameState==='locking'?'🔒 LOCKED':'🔴 LIVE'}
               </span>
             </div>
             {(gameState==='idle'||gameState==='betting') && matchInfo.secondsUntilLock > 0 && (
               <div className="flex flex-col items-end">
-                <span className="text-[6px] text-gray-500 uppercase tracking-wider">CLOSES IN</span>
-                <span className="text-lg font-black italic tabular-nums text-[#f1c40f]">{formatTime(matchInfo.secondsUntilLock)}</span>
-                <span className="text-[5px] text-gray-600 tracking-wider">{matchInfo.roundStartText} — {matchInfo.roundEndText}</span>
+                <span className="text-[5px] text-gray-500 uppercase tracking-wider leading-none">CLOSES IN</span>
+                <span className="text-sm font-black italic tabular-nums text-[#f1c40f] leading-none mt-0.5">{formatTime(matchInfo.secondsUntilLock)}</span>
               </div>
             )}
-            {gameState==='locking' && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[7px] text-gray-500 uppercase tracking-wider">LOCKING</span>
-                <span className="text-lg font-black italic tabular-nums text-red-500 animate-pulse">{lockTimer}</span>
-              </div>
-            )}
-            {gameState==='idle' && matchInfo.secondsUntilLock > 0 && <span className="text-[8px] text-cyan-400/60 font-bold uppercase tracking-wider animate-pulse">TAP TO BET ↓</span>}
-            {isBattle && (
-              <div className="flex items-center gap-1 animate-pulse">
-                <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-                <span className="text-[7px] text-gray-400 italic uppercase tracking-wider">In Progress</span>
-                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
-              </div>
-            )}
+            {gameState==='locking' && <span className="text-sm font-black italic tabular-nums text-red-500 animate-pulse">{lockTimer}</span>}
           </div>
 
-          {/* Locking Overlay */}
           {gameState==='locking' && (
             <div className="absolute inset-0 z-30 bg-black/60 flex items-center justify-center pointer-events-none">
-              <div className="bg-black/90 px-6 py-4 border-y-4 border-red-600 animate-pulse w-full text-center">
-                <span className="text-xl font-black text-red-500 italic tracking-[0.3em] uppercase">{t('arcade.bettingClosed')}</span>
-                <p className="text-[9px] text-white tracking-[0.5em] uppercase mt-2 opacity-80">{t('arcade.preparingBattle')}</p>
+              <div className="bg-black/90 px-4 py-2 border-y-2 border-red-600 animate-pulse w-full text-center">
+                <span className="text-base font-black text-red-500 italic uppercase">BETTING CLOSED</span>
               </div>
             </div>
           )}
 
-          {/* Robot Display */}
-          <div className="px-4 py-3 flex items-center justify-center gap-2 relative">
-            {/* Battle FX overlays */}
-            {battleFX==='blue-attack' && robots.red && <span className="absolute left-[20%] top-[20%] text-3xl z-50 drop-shadow-lg">💥</span>}
-            {battleFX==='red-attack' && robots.blue && <span className="absolute right-[20%] top-[20%] text-3xl z-50 drop-shadow-lg scale-x-[-1]">💥</span>}
-
-            <div className={`flex-1 flex justify-center gap-1 ${battleFX==='red-attack'?'anim-attack-right':''} ${battleFX==='blue-attack'?'anim-hit':''} ${gameState==='locking'?'anim-power-up':''}`}>
-              {robots.red?.map((r, i) => (
-                <RobotCard key={`tr-${i}`} robot={r} side="red" isWinner={winner==='red'&&isResult} isLoser={winner==='blue'&&isResult} />
+          <div className="px-3 py-1 flex items-center justify-center gap-1 relative min-h-[80px]">
+            <div className={`flex-1 flex justify-center gap-1 ${battleFX==='red-attack'?'anim-attack-right':''} ${battleFX==='blue-attack'?'anim-hit':''}`}>
+              {robots.red?.map((r,i)=>(
+                <div key={`tr-${i}`} className={`flex flex-col items-center flex-1 ${winner==='blue'&&isResult?'opacity-30':''}`}>
+                  <img src={r?.imagePath} className="w-14 h-14 object-contain image-pixelated" alt="R"/>
+                  <div className={`mt-1 bg-black/60 border border-red-900/30 p-1 w-full max-w-[60px] text-center ${winner==='red'&&isResult?'neon-border-red':''}`}>
+                    <span className="text-[5px] font-mono text-white block">A:{r?.atk} D:{r?.def} S:{r?.spd}</span>
+                  </div>
+                </div>
               ))}
             </div>
-
-            <div className="flex flex-col items-center -mt-8 z-20">
-              {isBattle ? (
-                <div className="w-12 h-12 rounded-full bg-black/90 border-2 border-yellow-500/40 flex items-center justify-center shadow-[0_0_20px_rgba(241,196,15,0.2)]">
-                  <span className="text-2xl">⚔️</span>
-                </div>
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-black/80 border-2 border-gray-700/50 flex items-center justify-center">
-                  <span className="text-sm font-black italic text-gray-500">VS</span>
-                </div>
-              )}
+            <div className="z-20 -mt-2">
+              <div className={`w-7 h-7 rounded-full bg-black/80 border border-gray-700/50 flex items-center justify-center ${isBattle?'animate-pulse border-yellow-500/50 shadow-[0_0_10px_rgba(241,196,15,0.3)]':''}`}>
+                <span className="text-[8px] font-black italic text-gray-500">{isBattle?'⚔️':'VS'}</span>
+              </div>
             </div>
-
-            <div className={`flex-1 flex justify-center gap-1 ${battleFX==='blue-attack'?'anim-attack-left':''} ${battleFX==='red-attack'?'anim-hit':''} ${gameState==='locking'?'anim-power-up':''}`}>
-              {robots.blue?.map((b, i) => (
-                <RobotCard key={`tb-${i}`} robot={b} side="blue" isWinner={winner==='blue'&&isResult} isLoser={winner==='red'&&isResult} />
+            <div className={`flex-1 flex justify-center gap-1 ${battleFX==='blue-attack'?'anim-attack-left':''} ${battleFX==='red-attack'?'anim-hit':''}`}>
+              {robots.blue?.map((b,i)=>(
+                <div key={`tb-${i}`} className={`flex flex-col items-center flex-1 ${winner==='red'&&isResult?'opacity-30':''}`}>
+                  <img src={b?.imagePath} className="w-14 h-14 object-contain image-pixelated" alt="B"/>
+                  <div className={`mt-1 bg-black/60 border border-blue-900/30 p-1 w-full max-w-[60px] text-center ${winner==='blue'&&isResult?'neon-border-blue':''}`}>
+                    <span className="text-[5px] font-mono text-white block">A:{b?.atk} D:{b?.def} S:{b?.spd}</span>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
 
-          {/* Pool Distribution Bar */}
           {totalPool > 0 && (
-            <div className="px-4 py-2">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-[7px] font-black text-red-500">RED: {pool.red} TON ({redPct}%)</span>
-                <span className="text-[7px] font-black text-blue-500">BLUE: {pool.blue} TON ({bluePct}%)</span>
+            <div className="px-3 py-1">
+              <div className="flex justify-between items-center mb-0.5">
+                <span className="text-[5px] font-black text-red-500 uppercase tracking-tighter">RED: {redPct}%</span>
+                <span className="text-[5px] font-black text-blue-500 uppercase tracking-tighter">BLUE: {bluePct}%</span>
               </div>
-              <div className="w-full h-3 bg-gray-900 border border-white/10 flex overflow-hidden rounded-sm">
-                <div className="h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-500" style={{width:`${redPct}%`}}></div>
-                <div className="h-full bg-gradient-to-r from-blue-500 to-blue-700 transition-all duration-500" style={{width:`${bluePct}%`}}></div>
+              <div className="w-full h-1.5 bg-gray-900 border border-white/5 flex overflow-hidden rounded-full">
+                <div className="h-full bg-gradient-to-r from-red-700 to-red-500" style={{width:`${redPct}%`}}></div>
+                <div className="h-full bg-gradient-to-r from-blue-500 to-blue-700" style={{width:`${bluePct}%`}}></div>
               </div>
-              <div className="flex justify-between mt-1 px-0.5">
-                <span className="text-[6px] text-gray-500 font-mono font-bold tracking-widest uppercase mt-0.5">TOTAL: {totalPool.toFixed(1)} TON</span>
-                <div className="flex items-center gap-2">
-                  {selectedBet ? (
-                    <span className="text-[7px] text-[#2ecc71] font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_2px_rgba(46,204,113,0.5)]">
-                      YOUR EST. REWARD: {(matchInfo.betAmount * (selectedBet === 'red' ? redMult : blueMult)).toFixed(2)} TON
-                    </span>
-                  ) : (
-                    <>
-                      <span className="text-[6px] text-red-500 font-mono font-bold tracking-widest uppercase">RED PAYOUT: {redMult.toFixed(2)}x</span>
-                      <span className="text-[6px] text-gray-600 font-mono font-bold">|</span>
-                      <span className="text-[6px] text-blue-500 font-mono font-bold tracking-widest uppercase">BLUE PAYOUT: {blueMult.toFixed(2)}x</span>
-                    </>
-                  )}
+              <div className="flex justify-between mt-1 items-center">
+                <span className="text-[5px] text-gray-500 font-mono font-bold uppercase">TOTAL: {totalPool.toFixed(1)} TON</span>
+                <div className="flex gap-1.5">
+                  <span className="text-[5px] text-red-500 font-mono font-bold uppercase">{redMult.toFixed(2)}X</span>
+                  <span className="text-[5px] text-blue-500 font-mono font-bold uppercase">{blueMult.toFixed(2)}X</span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Seed Pool Badge + Info */}
-          <div className="px-4 pb-2 flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-cyan-950/30 border border-cyan-800/30 px-2 py-1 rounded-sm">
-              <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></div>
-              <span className="text-[7px] text-cyan-400 font-bold uppercase tracking-wider">SEED POOL: {SEED_AMOUNT * 2} TON ({SEED_AMOUNT}/side)</span>
-            </div>
-            <div className="group relative">
-              <button className="w-4 h-4 bg-cyan-950/50 border border-cyan-800/30 rounded-full text-[7px] text-cyan-400 font-black flex items-center justify-center hover:bg-cyan-900/40 transition-colors">?</button>
-              <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 bg-[#0a0e18] border border-cyan-800/40 p-2.5 rounded-md z-50 shadow-[0_0_20px_rgba(0,200,255,0.1)]">
-                <p className="text-[7px] text-cyan-300 font-bold uppercase tracking-wider mb-1">🔒 Guaranteed Seed Pool</p>
-                <p className="text-[6px] text-gray-400 leading-relaxed">ทุกแมตช์ ระบบจะวางเงินกองกลางเริ่มต้นฝั่งละ {SEED_AMOUNT} TON เพื่อรับประกันว่าผู้ชนะจะได้รับผลกำไรอย่างแน่นอน แม้จะไม่มีผู้เล่นฝั่งตรงข้ามร่วมเดิมพันก็ตาม</p>
-                <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-2 h-2 bg-[#0a0e18] border-r border-b border-cyan-800/40 rotate-45"></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="px-4 pb-4">
+          <div className="px-3 pb-2 pt-1">
             {(gameState==='idle'||gameState==='betting') && !limitReached && (
-              <div className="flex gap-2">
-                <button onClick={()=>handleBet('red')} disabled={selectedBet!==null||(gameState==='betting'&&limitReached)}
-                  className={`flex-1 py-3 border-2 font-black text-xs tracking-widest flex flex-col items-center gap-0.5 transition-all ${
-                    selectedBet==='red'?'bg-red-600 border-white text-white shadow-[0_0_20px_rgba(255,0,0,0.3)] scale-[1.02]':
-                    selectedBet==='blue'?'bg-gray-800 border-gray-700 text-gray-500 grayscale':
-                    'bg-gradient-to-b from-red-700 to-red-900 border-red-500/50 text-white hover:from-red-600 hover:to-red-800 active:scale-[0.98] shadow-[0_0_15px_rgba(255,0,0,0.15)]'
-                  }`}>
-                  <span>🔴 BET RED</span>
-                  <span className="text-[7px] font-normal opacity-70">({matchInfo.betAmount} TON)</span>
-                  {gameState==='betting' && <span className={`text-[6px] font-normal ${redMult>=2?'text-[#2ecc71]':'text-gray-400'}`}>Est. {redMult.toFixed(1)}x</span>}
-                </button>
-                <button onClick={()=>handleBet('blue')} disabled={selectedBet!==null||(gameState==='betting'&&limitReached)}
-                  className={`flex-1 py-3 border-2 font-black text-xs tracking-widest flex flex-col items-center gap-0.5 transition-all ${
-                    selectedBet==='blue'?'bg-blue-600 border-white text-white shadow-[0_0_20px_rgba(0,100,255,0.3)] scale-[1.02]':
-                    selectedBet==='red'?'bg-gray-800 border-gray-700 text-gray-500 grayscale':
-                    'bg-gradient-to-b from-blue-700 to-blue-900 border-blue-500/50 text-white hover:from-blue-600 hover:to-blue-800 active:scale-[0.98] shadow-[0_0_15px_rgba(0,100,255,0.15)]'
-                  }`}>
-                  <span>🔵 BET BLUE</span>
-                  <span className="text-[7px] font-normal opacity-70">({matchInfo.betAmount} TON)</span>
-                  {gameState==='betting' && <span className={`text-[6px] font-normal ${blueMult>=2?'text-[#2ecc71]':'text-gray-400'}`}>Est. {blueMult.toFixed(1)}x</span>}
-                </button>
+              <div className="flex gap-1.5">
+                <button onClick={()=>handleBet('red')} disabled={selectedBet!==null} className={`flex-1 py-1.5 border-2 font-black text-[9px] tracking-widest flex items-center justify-center gap-1 transition-all ${selectedBet==='red'?'bg-red-600 border-white text-white':'bg-gradient-to-b from-red-700 to-red-900 border-red-500/50 text-white'}`}>BET RED</button>
+                <button onClick={()=>handleBet('blue')} disabled={selectedBet!==null} className={`flex-1 py-1.5 border-2 font-black text-[9px] tracking-widest flex items-center justify-center gap-1 transition-all ${selectedBet==='blue'?'bg-blue-600 border-white text-white':'bg-gradient-to-b from-blue-700 to-blue-900 border-blue-500/50 text-white'}`}>BET BLUE</button>
               </div>
             )}
-            {limitReached && gameState==='idle' && (
-              <div className="text-center py-3">
-                <p className="text-red-500 text-[9px] font-bold uppercase tracking-[0.2em] animate-pulse">{t('arcade.resetEvery2h')}</p>
-              </div>
-            )}
-            {isBattle && (
-              <div className="flex items-center justify-center gap-3 py-3 animate-pulse">
-                <div className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_#f00]"></div>
-                <span className="text-white text-[10px] font-black tracking-[0.3em] italic uppercase">{t('arcade.battleInProgress')}</span>
-                <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_#00f]"></div>
-              </div>
-            )}
-            {isResult && !showResultModal && (
-              <button onClick={startNewRound} className="w-full pixel-button bg-[#f1c40f] text-black py-3 font-black text-xs tracking-[0.2em] border-white hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_20px_rgba(241,196,15,0.3)]">
-                {t('arcade.nextRound')}
-              </button>
-            )}
+            {isBattle && <div className="text-center py-1.5"><span className="text-white text-[8px] font-black tracking-[0.2em] uppercase animate-pulse">{t('arcade.battleInProgress')}</span></div>}
+            {isResult && !showResultModal && <button onClick={startNewRound} className="w-full bg-[#f1c40f] text-black py-1.5 font-black text-[9px] tracking-[0.2em] border-white uppercase shadow-lg shadow-yellow-500/20">{t('arcade.nextRound')}</button>}
           </div>
         </div>
 
-        {/* ═══ UPCOMING MATCHES ═══ */}
-        {upcomingMatches.map((m,i) => <UpcomingCard key={i} match={m} index={i} />)}
-
-        <div className="h-4"></div>
+        {upcomingMatches.map((m,i) => <UpcomingCard key={i} match={m} />)}
+        <div className="h-2"></div>
       </div>
 
-      {/* ═══ RESULT MODAL ═══ */}
       {showResultModal && winner && (
         <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-300">
-          <div className={`w-full max-w-[320px] bg-[#0a0c14] border-4 p-6 flex flex-col items-center relative overflow-hidden ${winner==='red'?'border-red-600 shadow-[0_0_40px_rgba(255,51,68,0.3)]':'border-blue-600 shadow-[0_0_40px_rgba(59,130,246,0.3)]'}`}>
+          <div className={`w-full max-w-[300px] bg-[#0a0c14] border-4 p-5 flex flex-col items-center relative overflow-hidden ${winner==='red'?'border-red-600 shadow-[0_0_30px_rgba(255,51,68,0.3)]':'border-blue-600 shadow-[0_0_30px_rgba(59,130,246,0.3)]'}`}>
             <div className="arcade-crt-overlay rounded"></div>
-            <h3 className="text-[#f1c40f] text-sm font-black tracking-[0.3em] uppercase mb-4">{t('arcade.matchResult')}</h3>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-4xl drop-shadow-lg flex-shrink-0">🏆</span>
-              <div className="flex justify-center gap-2">
-                {(winner==='red'?robots.red:robots.blue)?.map((r, i) => (
-                  <div key={`w-${i}`} className={`w-16 h-16 ${winner==='red'?'drop-shadow-[0_0_20px_rgba(255,51,68,0.6)]':'drop-shadow-[0_0_20px_rgba(59,130,246,0.6)]'}`}>
-                    <img src={r?.imagePath} className="w-full h-full object-contain image-pixelated" alt="W"/>
-                  </div>
-                ))}
-              </div>
+            <h3 className="text-[#f1c40f] text-[10px] font-black tracking-[0.3em] uppercase mb-4">{t('arcade.matchResult')}</h3>
+            <div className="flex justify-center gap-2 mb-4">
+              {(winner==='red'?robots.red:robots.blue)?.map((r,i)=>(<div key={`w-${i}`} className="w-12 h-12"><img src={r?.imagePath} className="w-full h-full object-contain image-pixelated" alt="W"/></div>))}
             </div>
-            <h4 className={`text-xl font-black italic tracking-widest mb-1 ${winner==='red'?'neon-text-red':'neon-text-blue'}`}>{winner.toUpperCase()} {t('arcade.wins')}</h4>
-            {((winner==='red'&&redPct<40)||(winner==='blue'&&bluePct<40)) && (
-              <span className="text-[#f1c40f] text-[8px] font-black tracking-[0.3em] uppercase animate-pulse mb-2">{t('arcade.upsetVictory')}</span>
-            )}
-            <div className="w-full bg-black/60 border border-white/10 p-3 mb-4 space-y-1">
-              <div className="flex justify-between text-[8px] font-mono"><span className="text-gray-500">POOL</span><span className="text-white font-bold">{totalPool} TON</span></div>
-              <div className="flex justify-between text-[8px] font-mono"><span className="text-gray-500">DEV FEE (10%)</span><span className="text-red-400 font-bold">-{(totalPool*DEV_FEE).toFixed(1)} TON</span></div>
-              <div className="flex justify-between text-[8px] font-mono border-t border-white/10 pt-1"><span className="text-gray-500">PAYOUT</span><span className="text-[#f1c40f] font-bold">{poolAfterFee.toFixed(1)} TON</span></div>
+            <h4 className={`text-lg font-black italic tracking-widest mb-3 ${winner==='red'?'neon-text-red':'neon-text-blue'}`}>{winner.toUpperCase()} {t('arcade.wins')}</h4>
+            <div className="w-full bg-black/60 border border-white/10 p-2.5 mb-4 space-y-1">
+              <div className="flex justify-between text-[7px] font-mono"><span className="text-gray-500">POOL</span><span className="text-white font-bold">{totalPool} TON</span></div>
+              <div className="flex justify-between text-[7px] font-mono border-t border-white/10 pt-1"><span className="text-gray-500">PAYOUT</span><span className="text-[#f1c40f] font-bold">{poolAfterFee.toFixed(1)} TON</span></div>
             </div>
             {selectedBet ? (
-              selectedBet===winner ? (
-                <div className="w-full text-center mb-4">
-                  <p className="text-[#2ecc71] text-sm font-black tracking-widest animate-pulse">🎉 {t('arcade.youWon')} {reward.toFixed(2)} TON</p>
-                  <p className="text-[7px] text-gray-500 mt-1">({(winner==='red'?redMult:blueMult).toFixed(1)}x multiplier)</p>
-                </div>
-              ) : (
-                <div className="w-full text-center mb-4">
-                  <p className="text-red-500 text-sm font-black tracking-widest">💀 {t('arcade.youLost')} 1 TON</p>
-                  <p className="text-[7px] text-gray-500 mt-1">{t('pvp.betterLuck')}</p>
-                </div>
-              )
-            ) : (
-              <p className="text-gray-500 text-[8px] font-bold mb-4 uppercase tracking-wider">{t('arcade.didntBet')}</p>
-            )}
+              <div className="w-full text-center mb-4">
+                <p className={`text-xs font-black tracking-widest ${selectedBet===winner?'text-[#2ecc71] animate-pulse':'text-red-500'}`}>{selectedBet===winner ? `🎉 +${reward.toFixed(2)} TON` : '💀 LOST'}</p>
+              </div>
+            ) : <p className="text-gray-500 text-[7px] font-bold mb-4 uppercase">{t('arcade.didntBet')}</p>}
             {selectedBet && selectedBet===winner && !claimed ? (
-              <button onClick={handleClaim} className="w-full py-3.5 bg-[#f1c40f] text-black font-black text-sm tracking-[0.2em] uppercase hover:scale-[1.03] active:scale-[0.97] transition-all shadow-[0_0_20px_rgba(241,196,15,0.4)] border-b-4 border-yellow-700">{t('raid.claim')}</button>
-            ) : claimed ? (
-              <div className="w-full py-3.5 bg-[#2ecc71] text-white font-black text-sm tracking-[0.2em] uppercase text-center">✅ {t('modal.rewardClaimed')}</div>
+              <button onClick={handleClaim} className="w-full py-2.5 bg-[#f1c40f] text-black font-black text-xs tracking-[0.2em] uppercase shadow-lg shadow-yellow-500/20">{t('raid.claim')}</button>
             ) : (
-              <button onClick={()=>setShowResultModal(false)} className="w-full py-3 bg-gray-800 text-gray-400 font-black text-xs tracking-[0.2em] uppercase hover:bg-gray-700 transition-colors border border-gray-700">CLOSE</button>
+              <button onClick={()=>setShowResultModal(false)} className="w-full py-2 bg-gray-800 text-gray-400 font-black text-[9px] tracking-[0.2em] uppercase border border-gray-700">CLOSE</button>
             )}
           </div>
         </div>

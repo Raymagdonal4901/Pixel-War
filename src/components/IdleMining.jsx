@@ -307,8 +307,11 @@ function IdleMining({
                          <Sprite char={hero} />
                        </div>
                        <div className="text-[8px] text-white text-center w-full truncate font-bold">{hero.name}</div>
+                       <div className="text-[7px] text-[#e74c3c] font-black tracking-tighter mt-0.5 leading-none uppercase text-center w-full">
+                         ⚔️ ATK: {hero.atk}
+                       </div>
                        <div className="text-[7px] text-[#00ffcc] font-mono mt-0.5 border-t border-gray-800 pt-1 w-full text-center">
-                         +{(hero.atk * BASE_RATE_PER_ATK).toFixed(2)}/d
+                         +{(hero.atk * BASE_RATE_PER_ATK).toFixed(3)}/d
                        </div>
                      </div>
                    ))}

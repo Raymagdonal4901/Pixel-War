@@ -33,25 +33,25 @@ const ReferralHub = ({ referralData, onClaim, balance, triggerModal, resetReferr
   };
 
   return (
-    <div className="flex flex-col flex-1 p-4 animate-in fade-in relative min-h-full no-scrollbar overflow-y-auto">
+    <div className="flex flex-col flex-1 p-2 animate-in fade-in relative min-h-full no-scrollbar overflow-y-auto">
       {/* ─── HEADER ─── */}
-      <div className="text-center mb-6 pt-2 relative">
-        <h2 className="text-[18px] font-black tracking-[0.2em] text-[#4ade80] drop-shadow-[0_0_10px_rgba(74,222,128,0.5)] uppercase animate-pulse">
+      <div className="text-center mb-3 pt-1 relative">
+        <h2 className="text-[14px] font-black tracking-[0.2em] text-[#4ade80] drop-shadow-[0_0_8px_rgba(74,222,128,0.4)] uppercase animate-pulse">
            {t('referral.title')}
         </h2>
-        <div className="h-0.5 w-16 bg-[#4ade80] mx-auto mt-2 shadow-[0_0_8px_rgba(74,222,128,0.8)]"></div>
+        <div className="h-0.5 w-12 bg-[#4ade80] mx-auto mt-1 shadow-[0_0_6px_rgba(74,222,128,0.6)]"></div>
       </div>
 
       {/* ─── YOUR LINK ─── */}
-      <section className="mb-6">
-        <label className="text-[10px] text-gray-500 font-bold uppercase tracking-widest ml-1 mb-2 block">
+      <section className="mb-3">
+        <label className="text-[8px] text-gray-500 font-black uppercase tracking-widest ml-1 mb-1 block">
           {t('referral.yourLink')}
         </label>
-        <div className="bg-[#0f172a] border-2 border-[#10b981] p-1.5 flex items-center justify-between rounded-lg shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
-          <div className="px-3 text-[10px] text-[#4ade80] font-mono truncate">{stats.refLink}</div>
+        <div className="bg-[#0f172a] border border-[#10b981]/50 p-1 flex items-center justify-between rounded-lg">
+          <div className="px-2 text-[8px] text-[#4ade80] font-mono truncate">{stats.refLink}</div>
           <button 
             onClick={handleCopy}
-            className={`min-w-[100px] h-10 relative overflow-hidden transition-all active:scale-95 text-[11px] font-black tracking-widest ${copied ? 'bg-[#10b981] text-white' : 'text-black bg-[#facc15]'} pixel-border-sm border-b-4 border-yellow-700 active:border-b-0 active:translate-y-1 shadow-lg`}
+            className={`min-w-[80px] h-8 relative overflow-hidden transition-all active:scale-95 text-[9px] font-black tracking-widest ${copied ? 'bg-[#10b981] text-white' : 'text-black bg-[#facc15]'} border-b-2 border-yellow-700 active:border-b-0 uppercase`}
           >
             {copied ? 'COPIED!' : 'COPY'}
           </button>
@@ -59,84 +59,75 @@ const ReferralHub = ({ referralData, onClaim, balance, triggerModal, resetReferr
       </section>
 
       {/* ─── MY NETWORK ─── */}
-      <section className="mb-6 flex-1">
-        <div className="flex items-center gap-2 mb-3">
-          <h3 className="text-yellow-400 text-[10px] uppercase font-black tracking-widest border-l-4 border-yellow-400 pl-2">
+      <section className="mb-3 flex-1">
+        <div className="flex items-center gap-1.5 mb-2">
+          <h3 className="text-yellow-400 text-[9px] uppercase font-black tracking-widest border-l-2 border-yellow-400 pl-2">
             {t('referral.network')}
           </h3>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           {/* Tier 1 */}
-          <div className="bg-[#1e293b]/60 border-2 border-[#334155] p-3 rounded-xl flex items-center justify-between relative overflow-hidden group hover:border-[#facc15] transition-colors">
-            <div className="flex items-center gap-4 relative z-10">
-              <div className="w-10 h-10 bg-[#facc15] rounded-lg flex items-center justify-center text-black text-[20px] font-black shadow-[0_4px_0_#ca8a04] group-hover:scale-110 transition-transform">🥇</div>
+          <div className="bg-[#1e293b]/40 border border-white/5 p-2 rounded-lg flex items-center justify-between relative overflow-hidden group">
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="w-8 h-8 bg-[#facc15] rounded flex items-center justify-center text-black text-[14px] font-black shadow-[0_2px_0_#ca8a04]">🥇</div>
               <div className="flex flex-col">
-                <span className="text-white font-black tracking-wider text-[11px] mb-0.5">Tier 1 (เพื่อนตรง)</span>
-                <span className="text-gray-400 text-[9px] font-mono leading-none">{stats.tier1.count} FRIENDS / 10%</span>
+                <span className="text-white font-black tracking-wider text-[9px] mb-0.5">Tier 1 (เพื่อนตรง)</span>
+                <span className="text-gray-500 text-[8px] font-mono leading-none">{stats.tier1.count} FRIENDS / 10%</span>
               </div>
             </div>
             <div className="text-right relative z-10">
-              <span className="text-gray-500 text-[8px] block font-bold mb-1 uppercase tracking-tighter">Earnings</span>
-              <span className="text-[#4ade80] font-black text-xs block font-mono">{stats.tier1.earned.toFixed(4)} TON</span>
-            </div>
-            <div className="absolute right-[-10px] bottom-[-10px] opacity-[0.03] rotate-[-15deg] group-hover:opacity-[0.08] transition-opacity">
-               <IconRobotSil className="w-24 h-24" color="white" />
+              <span className="text-gray-600 text-[6px] block font-bold mb-0.5 uppercase tracking-tighter">Earnings</span>
+              <span className="text-[#4ade80] font-black text-[10px] block font-mono">{stats.tier1.earned.toFixed(4)} TON</span>
             </div>
           </div>
 
           {/* Tier 2 */}
-          <div className="bg-[#1e293b]/60 border-2 border-[#334155] p-3 rounded-xl flex items-center justify-between relative overflow-hidden group hover:border-gray-400 transition-colors">
-            <div className="flex items-center gap-4 relative z-10">
-              <div className="w-10 h-10 bg-gray-400 rounded-lg flex items-center justify-center text-black text-[20px] font-black shadow-[0_4px_0_#6b7280] group-hover:scale-110 transition-transform">🥈</div>
+          <div className="bg-[#1e293b]/40 border border-white/5 p-2 rounded-lg flex items-center justify-between relative overflow-hidden group">
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="w-8 h-8 bg-gray-400 rounded flex items-center justify-center text-black text-[14px] font-black shadow-[0_2px_0_#6b7280]">🥈</div>
               <div className="flex flex-col">
-                <span className="text-white font-black tracking-wider text-[11px] mb-0.5">Tier 2 (เพื่อนของเพื่อน)</span>
-                <span className="text-gray-400 text-[9px] font-mono leading-none">{stats.tier2.count} FRIENDS / 5%</span>
+                <span className="text-white font-black tracking-wider text-[9px] mb-0.5">Tier 2 (เพื่อนของเพื่อน)</span>
+                <span className="text-gray-500 text-[8px] font-mono leading-none">{stats.tier2.count} FRIENDS / 5%</span>
               </div>
             </div>
             <div className="text-right relative z-10">
-              <span className="text-gray-500 text-[8px] block font-bold mb-1 uppercase tracking-tighter">Earnings</span>
-              <span className="text-[#4ade80] font-black text-xs block font-mono">{stats.tier2.earned.toFixed(4)} TON</span>
-            </div>
-            <div className="absolute right-[-10px] bottom-[-10px] opacity-[0.03] rotate-[15deg] group-hover:opacity-[0.08] transition-opacity">
-               <IconRobotSil className="w-24 h-24" color="white" />
+              <span className="text-gray-600 text-[6px] block font-bold mb-0.5 uppercase tracking-tighter">Earnings</span>
+              <span className="text-[#4ade80] font-black text-[10px] block font-mono">{stats.tier2.earned.toFixed(4)} TON</span>
             </div>
           </div>
 
           {/* Tier 3 */}
-          <div className="bg-[#1e293b]/60 border-2 border-[#334155] p-3 rounded-xl flex items-center justify-between relative overflow-hidden group hover:border-[#cd7f32] transition-colors">
-            <div className="flex items-center gap-4 relative z-10">
-              <div className="w-10 h-10 bg-[#cd7f32] rounded-lg flex items-center justify-center text-white text-[20px] font-black shadow-[0_4px_0_#8b4513] group-hover:scale-110 transition-transform">🥉</div>
+          <div className="bg-[#1e293b]/40 border border-white/5 p-2 rounded-lg flex items-center justify-between relative overflow-hidden group">
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="w-8 h-8 bg-[#cd7f32] rounded flex items-center justify-center text-white text-[14px] font-black shadow-[0_2px_0_#8b4513]">🥉</div>
               <div className="flex flex-col">
-                <span className="text-white font-black tracking-wider text-[11px] mb-0.5">Tier 3 (ชั้นหลาน)</span>
-                <span className="text-gray-400 text-[9px] font-mono leading-none">{stats.tier3.count} FRIENDS / 2%</span>
+                <span className="text-white font-black tracking-wider text-[9px] mb-0.5">Tier 3 (ชั้นหลาน)</span>
+                <span className="text-gray-500 text-[8px] font-mono leading-none">{stats.tier3.count} FRIENDS / 2%</span>
               </div>
             </div>
             <div className="text-right relative z-10">
-              <span className="text-gray-500 text-[8px] block font-bold mb-1 uppercase tracking-tighter">Earnings</span>
-              <span className="text-[#4ade80] font-black text-xs block font-mono">{stats.tier3.earned.toFixed(4)} TON</span>
-            </div>
-            <div className="absolute right-[-10px] bottom-[-10px] opacity-[0.03] rotate-[-10deg] group-hover:opacity-[0.08] transition-opacity">
-               <IconRobotSil className="w-24 h-24" color="white" />
+              <span className="text-gray-600 text-[6px] block font-bold mb-0.5 uppercase tracking-tighter">Earnings</span>
+              <span className="text-[#4ade80] font-black text-[10px] block font-mono">{stats.tier3.earned.toFixed(4)} TON</span>
             </div>
           </div>
         </div>
       </section>
 
       {/* ─── CLAIM SECTION ─── */}
-      <section className="mt-auto pb-4">
-        <div className="bg-[#020617] border-2 border-[#4ade80] p-4 rounded-2xl shadow-[0_0_30px_rgba(0,0,0,0.5)] relative overflow-hidden">
+      <section className="mt-auto pb-2">
+        <div className="bg-[#020617] border border-[#4ade80]/50 p-3 rounded-xl shadow-lg relative overflow-hidden">
           <div className="absolute inset-0 opacity-10 pointer-events-none bg-gradient-to-b from-[#4ade80] via-transparent to-[#4ade80] h-px animate-scanline"></div>
           
-          <div className="relative z-10 flex flex-col gap-4">
+          <div className="relative z-10 flex flex-col gap-3">
             <div className="flex justify-between items-end px-1">
                <div className="flex flex-col">
-                 <p className="text-gray-400 text-[9px] uppercase font-black tracking-widest">{t('referral.unclaimed')}</p>
-                 <p className="text-[#4ade80] text-2xl font-black drop-shadow-[0_0_15px_rgba(74,222,128,0.6)]">{stats.unclaimed.toFixed(4)} <span className="text-[10px]">TON</span></p>
+                 <p className="text-gray-500 text-[8px] uppercase font-black tracking-widest">{t('referral.unclaimed')}</p>
+                 <p className="text-[#4ade80] text-xl font-black drop-shadow-[0_0_10px_rgba(74,222,128,0.4)]">{stats.unclaimed.toFixed(4)} <span className="text-[8px]">TON</span></p>
                </div>
                <div className="text-right">
-                 <p className="text-gray-500 text-[8px] uppercase font-bold tracking-tighter">Current Balance</p>
-                 <p className="text-white text-[10px] font-bold font-mono">{balance.toFixed(2)} TON</p>
+                 <p className="text-gray-600 text-[7px] uppercase font-bold tracking-tighter">Current Balance</p>
+                 <p className="text-white text-[9px] font-bold font-mono">{balance.toFixed(2)} TON</p>
                </div>
             </div>
 
@@ -153,13 +144,13 @@ const ReferralHub = ({ referralData, onClaim, balance, triggerModal, resetReferr
                   });
                 }
               }}
-              className="w-full h-14 bg-[#10b981] hover:bg-[#059669] text-black font-black tracking-[0.3em] text-[15px] rounded-xl transition-all shadow-[0_10px_20px_rgba(34,197,94,0.3)] active:translate-y-1 active:shadow-none disabled:opacity-30 disabled:grayscale uppercase border-b-4 border-green-900"
+              className="w-full h-11 bg-[#10b981] hover:bg-[#059669] text-black font-black tracking-[0.2em] text-[12px] rounded-lg transition-all active:translate-y-0.5 disabled:opacity-30 disabled:grayscale uppercase border-b-2 border-green-900"
             >
               {t('referral.claim')}
             </button>
 
             {/* Reset Stats (Dev Only/Server Push) */}
-            <div className="mt-2 flex justify-center">
+            <div className="flex justify-center">
               <button 
                 onClick={() => {
                   triggerModal({
@@ -170,7 +161,7 @@ const ReferralHub = ({ referralData, onClaim, balance, triggerModal, resetReferr
                     onConfirm: resetReferrals
                   });
                 }}
-                className="text-[7px] text-gray-500 hover:text-red-400 font-bold tracking-widest uppercase underline underline-offset-4"
+                className="text-[6px] text-gray-600 hover:text-red-400 font-bold tracking-widest uppercase underline underline-offset-2"
               >
                 Reset Statistics
               </button>
