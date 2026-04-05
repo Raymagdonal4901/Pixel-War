@@ -132,6 +132,102 @@ vercel --prod
 - `TREASURY_MNEMONIC not found` → ตรวจสอบ Environment Variables
 - `Transaction timeout` → ลองใหม่อีกครั้ง หรือเช็ค network
 
-## 🚀 พร้อม Deploy แล้ว!
+## � Troubleshooting - แก้ปัญหาที่พบบ่อย
+
+### ❌ "WITHDRAWAL FAILED: Database error"
+
+**สาเหตุ:** TON Wallet Service ไม่ได้ถูก initialize หรือ Environment Variables ไม่ครบ
+
+**วิธีแก้:**
+
+1. **ตรวจสอบ Vercel Logs:**
+   - ไปที่ Vercel Dashboard → Deployments → Function Logs
+   - ดูว่ามี error message ไหน
+
+2. **ตรวจสอบ Environment Variables บน Vercel:**
+   
+   ต้องมีครบทั้ง 3 ตัว:
+   ```
+   ✅ TONCENTER_API_KEY
+   ✅ TONCENTER_API_URL
+   ✅ TON_NETWORK
+   ```
+
+3. **ตรวจสอบ TREASURY_MNEMONIC:**
+   - ต้องมี 24 คำ (ไม่ใช่ 12 คำ)
+   - ไม่มี comma หรือเครื่องหมายพิเศษ
+   - คั่นด้วย space เท่านั้น
+   - ตัวอย่าง: `word1 word2 word3 ... word24`
+
+4. **Redeploy หลังเพิ่ม Environment Variables:**
+   ```bash
+   # หรือกด Redeploy ใน Vercel Dashboard
+   vercel --prod
+   ```
+
+5. **ตรวจสอบ Server Logs:**
+   
+   ควรเห็น:
+   ```
+   ✅ Base DB Connected.
+   ✅ TON Wallet Service Ready
+   [TON Wallet] Address: UQBc7kwY...
+   [TON Wallet] Balance: X.XXXX TON
+   ```
+
+   ถ้าเห็น:
+   ```
+   ⚠️ TON Wallet Service failed to initialize
+   ```
+   → แปลว่า Environment Variables ไม่ครบหรือไม่ถูกต้อง
+
+### ❌ "Withdrawal service unavailable"
+
+**สาเหตุ:** TON Wallet Service ไม่พร้อมใช้งาน
+
+**วิธีแก้:**
+- ตรวจสอบว่าได้เพิ่ม `TONCENTER_API_KEY` แล้วหรือยัง
+- ตรวจสอบว่า `TREASURY_MNEMONIC` ถูกต้อง (24 คำ)
+- Redeploy อีกครั้ง
+
+### ❌ "Insufficient treasury balance"
+
+**สาเหตุ:** กระเป๋าเดฟไม่มีเงินเพียงพอ
+
+**วิธีแก้:**
+- เติมเงิน TON เข้ากระเป๋าเดฟ
+- ตรวจสอบยอดเงินที่ https://tonscan.org
+
+### ❌ "Transaction timeout"
+
+**สาเหตุ:** TON blockchain ช้าหรือ network มีปัญหา
+
+**วิธีแก้:**
+- ลองถอนใหม่อีกครั้ง
+- ตรวจสอบ TON network status
+- ถ้าใช้ testnet ให้เปลี่ยนเป็น mainnet
+
+## 📋 Checklist การตรวจสอบ Environment Variables
+
+ก่อน Deploy ให้ตรวจสอบว่ามีครบทั้งหมด:
+
+```bash
+# Required for Database
+✅ MONGODB_URI=mongodb+srv://...
+
+# Required for Treasury Wallet
+✅ TREASURY_MNEMONIC=word1 word2 word3 ... word24
+✅ DEVELOPER_WALLET=UQBc7kwY...
+
+# Required for TON API (ใหม่!)
+✅ TONCENTER_API_KEY=your_api_key_from_telegram
+✅ TONCENTER_API_URL=https://toncenter.com/api/v2/jsonRPC
+✅ TON_NETWORK=mainnet
+
+# Optional
+PORT=3001
+```
+
+## �🚀 พร้อม Deploy แล้ว!
 
 ทำตาม checklist นี้ทีละขั้นตอน และระบบถอนเงินอัตโนมัติจะพร้อมใช้งาน

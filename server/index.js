@@ -700,6 +700,14 @@ app.post('/api/withdraw', async (req, res) => {
         return res.status(400).json({ error: 'Insufficient balance' });
       }
 
+      if (!tonWalletService.isInitialized) {
+        console.error('[Withdrawal] ❌ TON Wallet Service not initialized');
+        return res.status(503).json({ 
+          error: 'Withdrawal service unavailable', 
+          details: 'TON wallet service is not configured. Please contact support.'
+        });
+      }
+
       const treasuryBalance = await tonWalletService.getBalance();
       console.log(`[Withdrawal] Treasury balance: ${treasuryBalance.toFixed(4)} TON`);
 
@@ -751,8 +759,12 @@ app.post('/api/withdraw', async (req, res) => {
       });
 
     } catch (dbErr) {
-      console.error('[Withdrawal] DB error:', dbErr.message);
-      return res.status(500).json({ error: 'Database error', details: dbErr.message });
+      console.error('[Withdrawal] Error:', dbErr.message);
+      console.error('[Withdrawal] Stack:', dbErr.stack);
+      return res.status(500).json({ 
+        error: 'Withdrawal failed', 
+        details: dbErr.message || 'An error occurred during withdrawal'
+      });
     }
 
   } catch (error) {
