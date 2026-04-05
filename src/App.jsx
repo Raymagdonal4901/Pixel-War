@@ -18,6 +18,7 @@ import { sendTelegramNotification } from './utils/telegram';
 import { io } from 'socket.io-client';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+const TON_COIN_PATH = '/ton_coin.png?cache-bust=1';
 
 // Icons placeholders using emojis/text for retro vibe
 const IconBattle = () => (
@@ -42,9 +43,9 @@ const IconHeroes = () => (
 );
 const IconArena = () => <img src="/PVP.png" alt="PVP" className="w-8 h-8 object-contain image-pixelated translate-y-[-2px]" />;
 const IconArcade = () => <img src="/PVP_arcade.png" alt="Arcade" className="w-8 h-8 object-contain image-pixelated translate-y-[-2px]" />;
-const IconEarn = () => <img src="/Withdraw.png" alt="Earn" className="w-[32px] h-[32px] object-contain image-pixelated drop-shadow-[0_0_5px_rgba(30,144,255,0.3)]" />;
+const IconEarn = () => <img src={TON_COIN_PATH} alt="TON" className="w-[32px] h-[32px] object-contain image-pixelated drop-shadow-[0_0_5px_rgba(30,144,255,0.3)]" />;
 const IconReferral = () => <span className="text-2xl drop-shadow-[0_0_5px_rgba(255,255,255,0.4)] relative -top-1">🤝</span>;
-const IconTon = ({ className }) => <img src="/ton_coin.png" alt="TON" className={`object-contain aspect-square ${className || 'w-4 h-4'}`} />;
+const IconTon = ({ className }) => <img src={TON_COIN_PATH} alt="TON" className={`object-contain aspect-square ${className || 'w-4 h-4'}`} />;
 const IconPixel = () => <span>🟡</span>;
 const IconCheck = () => (
   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -99,6 +100,9 @@ function App() {
   const [pullResult, setPullResult] = useState(null);
   const [isPulling, setIsPulling] = useState(false);
   const [showRates, setShowRates] = useState(false);
+  const [testMode, setTestMode] = useState(() => {
+    return localStorage.getItem('pixel_war_test_mode') === 'true';
+  });
 
   // ─── ROSTER & MISSIONS HOOKS ───
   const { buyTier } = useGacha();
@@ -351,6 +355,11 @@ function App() {
     localStorage.setItem('pixel_war_pvp_quota', JSON.stringify(pvpQuota));
   }, [pvpQuota]);
 
+  // Persist testMode when changed
+  useEffect(() => {
+    localStorage.setItem('pixel_war_test_mode', testMode ? 'true' : 'false');
+  }, [testMode]);
+
   useEffect(() => {
     localStorage.setItem('pixel_war_player_name', playerName);
     // Sync name change to backend
@@ -478,7 +487,14 @@ function App() {
 
   // Real Blockchain Payment Helper for GACHA
   const executeRealTonPayment = async (amount, label, recipient = RECIPIENT_ADDRESS, suppressNotification = false) => {
+    console.log('=== PAYMENT DEBUG ===');
+    console.log('Wallet address:', wallet?.account?.address);
+    console.log('DEV_WALLET_ADDRESS:', DEV_WALLET_ADDRESS);
+    console.log('Recipient:', recipient);
+    console.log('Amount:', amount);
+    
     if (!wallet) {
+      console.error('No wallet connected');
       triggerModal({
         type: 'alert',
         title: t('modal.warning'),
@@ -497,21 +513,27 @@ function App() {
       
       // Create simple transaction message for TON
       const amountInNano = Math.floor(amount * 1000000000).toString();
+      console.log('Amount in nanoton:', amountInNano);
+      
       const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [
           {
             address: recipient,
-            amount: amountInNano,
-            payload: undefined
+            amount: amountInNano
           }
         ]
       };
+      
+      console.log('Transaction object:', JSON.stringify(transaction));
 
       const result = await tonConnectUI.sendTransaction(transaction);
+      console.log('Transaction result:', result);
       
       if (result) {
         const txId = typeof result === 'string' ? result : result?.id || result?.transactionId || result?.hash || null;
+        console.log('Transaction ID:', txId);
+        
         if (recipient === DEV_WALLET_ADDRESS) {
           setDevBalance(prev => {
             const newBalance = prev + amount;
@@ -533,10 +555,18 @@ function App() {
         }
         return { success: true, transactionId: txId };
       }
+      console.error('No result from tonConnectUI');
       return false;
     } catch (e) {
       console.error("Blockchain Payment failed:", e);
-      setPaymentError("Transaction cancelled or failed.");
+      console.error("Error details:", e.message, e.stack);
+      triggerModal({
+        type: 'alert',
+        title: 'TRANSACTION FAILED',
+        message: `Error: ${e.message || 'Unknown error'}`,
+        confirmText: 'OK'
+      });
+      setPaymentError("Transaction cancelled or failed: " + e.message);
       return false;
     } finally {
       setIsProcessingPayment(false);
@@ -643,7 +673,7 @@ function App() {
   };
   window.handleDepositSimulation = handleDepositSimulation;
 
-  const handleWithdraw = () => {
+  const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     if (isNaN(amount) || amount <= 0) return;
     if (amount > gameBalance) {
@@ -657,29 +687,25 @@ function App() {
     }
     if (!withdrawAddress) return;
 
-    // Calculate net amount after fee
     const fee = amount * 0.1;
     const netAmount = amount - fee;
 
-    // Deduct from V-TON balance
+    const paymentResult = await executeRealTonPayment(netAmount, 'V-TON Withdrawal', withdrawAddress);
+    if (!paymentResult || !paymentResult.success) {
+      return;
+    }
+
+    // Deduct from V-TON balance only after successful on-chain payment
     setGameBalance(prev => prev - amount);
     setWithdrawAmount('');
     setWithdrawAddress('');
-    
-    // Show success notification
+
     setSuccessNotification({
       type: 'withdrawal',
       amount: netAmount,
       address: withdrawAddress,
       net: netAmount,
-      txId: `tx_${Date.now()}`
-    });
-
-    // Send Telegram notification
-    sendTelegramNotification('withdrawal', {
-      amount: netAmount,
-      address: withdrawAddress,
-      txId: `tx_${Date.now()}`
+      txId: paymentResult.transactionId || `tx_${Date.now()}`
     });
   };
 
@@ -742,9 +768,12 @@ function App() {
 
     const cost = TIER_PRICING[rarity];
 
-    // Await Real Blockchain Payment
-    const success = await executeRealTonPayment(cost, `Buy ${rarity} Robot`);
-    if (!success) return;
+    // Skip payment in test mode
+    if (!testMode) {
+      // Await Real Blockchain Payment
+      const success = await executeRealTonPayment(cost, `Buy ${rarity} Robot`);
+      if (!success) return;
+    }
 
     setIsPulling(true);
     setPullResult(null);
@@ -915,33 +944,24 @@ function App() {
                   
                   <div className="flex flex-col gap-2 w-full px-1">
                     {BOSSES.map((boss, idx) => {
-                      // Simple unlock logic: 0 is always unlocked
-                      const isUnlocked = idx === 0 || (userHeroes?.length || 0) >= (idx * 5);
+                      // All bosses unlocked for debug/test mode
+                      const isUnlocked = true;
 
                       return (
                         <div 
                           key={boss.id} 
                           className={`relative w-full pixel-border p-2 transition-all ${
-                            isUnlocked 
-                              ? 'opacity-100 cursor-pointer hover:bg-white/5 active:scale-[0.98]' 
-                              : 'opacity-50 grayscale cursor-not-allowed'
+                            'opacity-100 cursor-pointer hover:bg-white/5 active:scale-[0.98]'
                           }`}
                           style={{ 
                             backgroundColor: `${boss.color}10`, 
-                            borderColor: isUnlocked ? boss.color : '#333' 
+                            borderColor: boss.color
                           }}
                           onClick={() => {
-                            if (isUnlocked) {
-                              miningData?.selectBoss?.(idx);
-                              setRaidView('room');
-                            }
+                            miningData?.selectBoss?.(idx);
+                            setRaidView('room');
                           }}
                         >
-                          {!isUnlocked && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
-                              <span className="text-2xl drop-shadow-md">🔒</span>
-                            </div>
-                          )}
 
                           <div className="flex gap-3 items-center">
                             <div className="w-14 h-16 bg-black/40 pixel-border-sm flex-shrink-0 relative overflow-hidden" style={{ borderColor: boss.color }}>
@@ -1052,8 +1072,15 @@ function App() {
             ></div>
             
             <div className="relative z-10 w-full flex flex-col items-center flex-1 lg:max-w-md mx-auto">
-              <div className="w-full flex justify-center items-center mb-1 px-3 mt-1">
+              <div className="w-full flex justify-center items-center mb-1 px-3 mt-1 gap-2">
                   <h2 className="text-[9px] text-[var(--color-pixel)] drop-shadow-md font-pixel tracking-widest uppercase">{t('gacha.portalTitle')}</h2>
+                  <button 
+                    onClick={() => setTestMode(!testMode)}
+                    className={`text-[7px] px-2 py-1 font-bold rounded-sm transition-all ${testMode ? 'bg-green-600 text-white border border-green-400' : 'bg-gray-600 text-gray-300 border border-gray-500'}`}
+                    title="Toggle test mode for free gacha pulls"
+                  >
+                    {testMode ? '✓ TEST' : 'TEST'}
+                  </button>
               </div>
 
               {/* 3+2 Robot Previews with Stats */}
@@ -1122,9 +1149,15 @@ function App() {
                           </div>
                           
                           {/* Price Button Box */}
-                          <div className="mt-3 bg-black border-2 px-3 py-1 flex items-center justify-center gap-1.5 shadow-xl min-w-[60px]" style={{ borderColor: color }}>
-                             <IconTon className="w-3 h-3" />
-                             <span className="text-white text-[12px] font-black leading-none">{cost}</span>
+                          <div className="mt-3 bg-black border-2 px-3 py-1 flex items-center justify-center gap-1.5 shadow-xl min-w-[60px]" style={{ borderColor: testMode ? '#10b981' : color }}>
+                             {testMode ? (
+                               <span className="text-green-400 text-[12px] font-black leading-none">FREE</span>
+                             ) : (
+                               <>
+                                 <IconTon className="w-3 h-3" />
+                                 <span className="text-white text-[12px] font-black leading-none">{cost}</span>
+                               </>
+                             )}
                           </div>
                         </button>
                       );

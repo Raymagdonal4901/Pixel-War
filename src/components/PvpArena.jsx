@@ -501,7 +501,7 @@ export default function PvpArena({ userHeroes, pvpStats, setPvpStats, pvpQuota, 
                 {(pvpQuota?.count || 0) >= 5 ? 'LIMIT' : 
                  (gameBalance < fee ? 'NO FUNDS' : (isReady ? `${fee}` : 'CREATE'))}
               </span>
-              {!disabled && <img src="/ton_coin.png" alt="T" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(0,152,234,0.7)]" />}
+              {!disabled && <img src={TON_COIN_PATH} alt="T" className="w-7 h-7 object-contain drop-shadow-[0_0_8px_rgba(0,152,234,0.7)]" />}
             </button>
         </div>
       </div>
@@ -1066,7 +1066,7 @@ const MatchmakingView = ({
             </p>
             
             <div className="bg-[#0f111a]/90 border-2 border-[#2ecc71]/40 px-5 py-3 mb-8 flex items-center gap-3">
-              <span className="text-lg">💸</span>
+              <img src={TON_COIN_PATH} alt="TON" className="w-6 h-6 object-contain drop-shadow-[0_0_8px_rgba(0,152,234,0.7)]" />
               <div>
                 <p className="text-[#2ecc71] text-[10px] font-black tracking-widest uppercase">REFUND PROCESSED</p>
                 <p className="text-white text-xs font-mono font-bold">{currentSettings.fee} TON → {t('pvp.yourWallet')}</p>
@@ -1129,8 +1129,8 @@ const PvpRulesModal = ({ mode, onClose }) => {
         {/* Rules Content */}
         <div className="space-y-4">
           <div className="flex items-start gap-3">
-            <div className="w-6 h-6 flex items-center justify-center bg-yellow-500/10 rounded-sm text-lg">
-              {is3v3 ? "🤝" : "💰"}
+            <div className="w-6 h-6 flex items-center justify-center bg-yellow-500/10 rounded-sm">
+              {is3v3 ? "🤝" : <img src={TON_COIN_PATH} alt="TON" className="w-4 h-4 object-contain" />}
             </div>
             <div>
               <h3 className="text-yellow-500 text-[10px] font-black tracking-wider uppercase mb-1">
@@ -1157,8 +1157,8 @@ const PvpRulesModal = ({ mode, onClose }) => {
           </div>
 
           <div className="flex items-start gap-3">
-            <div className="w-6 h-6 flex items-center justify-center bg-green-500/10 rounded-sm text-lg">
-              {is3v3 ? "💰" : "🏆"}
+            <div className="w-6 h-6 flex items-center justify-center bg-green-500/10 rounded-sm">
+              {is3v3 ? <img src={TON_COIN_PATH} alt="TON" className="w-4 h-4 object-contain" /> : "🏆"}
             </div>
             <div>
               <h3 className="text-green-400 text-[10px] font-black tracking-wider uppercase mb-1">
